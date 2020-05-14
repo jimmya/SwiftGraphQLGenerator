@@ -315,7 +315,7 @@ public final class Generator {
             guard let inlineFragment = selection as? InlineFragment else { return }
             guard let caseTypeName = inlineFragment.typeCondition?.name.value else { return }
             let name = caseTypeName.replacingOccurrences(of: typeName, with: "").lowercasingFirstLetter()
-            var switchCase = SwitchCase(name: .nonEnum("\"\(caseTypeName)\""))
+            var switchCase = SwitchCase(name: .raw("\"\(caseTypeName)\""))
             let variable = .try | .named(caseTypeName) | .tuple(Tuple().adding(parameter: TupleParameter(name: "from", value: Value.reference(.named("decoder")))))
             let assignment = Assignment(variable: Reference.named("self"), value: .named(".\(name)") | .call(Tuple().adding(parameter: TupleParameter(name: name, value: variable))))
             switchCase = switchCase.adding(member: assignment)
