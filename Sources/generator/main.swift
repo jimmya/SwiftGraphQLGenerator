@@ -3,8 +3,6 @@ import GraphQL
 import Meta
 import GraphQLGenerator
 
-let start = Date()
-
 let cwd = getcwd(nil, Int(PATH_MAX))
 defer {
     free(cwd)
@@ -31,6 +29,11 @@ let schemaString = String(data: schemaData, encoding: .utf8)!
 
 let queryData = try Data(contentsOf: URL(fileURLWithPath: workingDirectory + "/Stores.graphql"))
 let queryString = String(data: queryData, encoding: .utf8)!
+
+var objectDefinitions: [String: ObjectTypeDefinition] = [:]
+var unionDefinitions: [String: UnionTypeDefinition] = [:]
+var interfaceDefinitions: [String: InterfaceTypeDefinition] = [:]
+var enumDefinitions: [String: EnumTypeDefinition] = [:]
 
 var members: [FileBodyMember] = []
 
@@ -89,8 +92,7 @@ func mapOperation(_ operation: OperationDefinition, schema: Document) throws -> 
         switch selection {
             case let field as Field:
                 let propertyName = field.alias?.value ?? field.name.value
-                let objectDefinitions = schema.definitions.compactMap { $0 as? ObjectTypeDefinition }
-                guard let query = objectDefinitions.first(where: { $0.name.value == "Query" }) else {
+                guard let query = objectDefinitions["Query"] else {
                     print("No query")
                     return
                 }
@@ -175,7 +177,7 @@ func mapObjectSelectionSet(_ selectionSet: SelectionSet, typeName: String, name:
             guard let definition = definition.fields.first(where: { $0.name.value == field.name.value }) else { return }
             let name = field.alias?.value ?? field.name.value
             let type = try mapType(definition.type, name: name)
-            let isEnum = definitions.compactMap { $0 as? EnumTypeDefinition}.contains(where: { $0.name.value == type.1 })
+            let isEnum = enumDefinitions.keys.contains(type.1)
             if isEnum {
                 usedEnumTypes.append(type.1)
             }
@@ -276,14 +278,11 @@ func mapUnionSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: 
 }
 
 func mapSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definitions: [Definition]) throws -> [TypeBodyMember & FileBodyMember] {
-    let objectDefinitions = definitions.compactMap { $0 as? ObjectTypeDefinition }
-    let unionDefinitions = definitions.compactMap { $0 as? UnionTypeDefinition }
-    let interfaceDefinitions = definitions.compactMap { $0 as? InterfaceTypeDefinition }
-    if let definition = unionDefinitions.first(where: { $0.name.value == typeName }) {
+    if let definition = unionDefinitions[typeName] {
         return try mapUnionSelectionSet(selectionSet, typeName: typeName, name: name, definition: definition, definitions: definitions)
-    } else if let definition = objectDefinitions.first(where: { $0.name.value == typeName }) {
+    } else if let definition = objectDefinitions[typeName] {
         return try [mapObjectSelectionSet(selectionSet, typeName: typeName, name: name, definition: definition, definitions: definitions)]
-    } else if let definition = interfaceDefinitions.first(where: { $0.name.value == typeName }) {
+    } else if let definition = interfaceDefinitions[typeName] {
         return []
     }
     throw GraphQLGeneratorError.unexpectedType
@@ -296,6 +295,22 @@ func mapFragment(_ fragment: FragmentDefinition, schema: Document) throws -> [Fi
 do {
     let schema = try parse(source: .init(body: schemaString))
     let document = try parse(source: .init(body: queryString))
+    
+    let start = Date()
+    
+    schema.definitions.forEach { definition in
+        switch definition {
+            case let objectDefinition as ObjectTypeDefinition:
+                objectDefinitions[objectDefinition.name.value] = objectDefinition
+            case let unionDefinition as UnionTypeDefinition:
+                unionDefinitions[unionDefinition.name.value] = unionDefinition
+            case let interfaceDefinition as InterfaceTypeDefinition:
+                interfaceDefinitions[interfaceDefinition.name.value] = interfaceDefinition
+            case let enumDefinition as EnumTypeDefinition:
+                enumDefinitions[enumDefinition.name.value] = enumDefinition
+            default: return
+        }
+    }
     
     for (index, definition) in document.definitions.enumerated() {
         switch definition {
@@ -319,9 +334,8 @@ do {
         }
         members.append(EmptyLine())
     }
-    let enumDefintions = schema.definitions.compactMap { $0 as? EnumTypeDefinition }
     usedEnumTypes.forEach { enumType in
-        guard let match = enumDefintions.first(where: { $0.name.value == enumType }) else { return }
+        guard let match = enumDefinitions[enumType] else { return }
         var enumNode = Meta.Type(identifier: .named(enumType)).with(kind: .enum(indirect: false)).adding(inheritedType: .string).adding(inheritedType: .named("Decodable")).with(accessLevel: .public)
         match.values.forEach { value in
             enumNode = enumNode.adding(member: Case(name: value.name.value))
@@ -335,9 +349,9 @@ do {
                        .empty])
         .adding(members: members)
     print(file.swiftString)
+    
+    let duration = Date().timeIntervalSince(start)
+    print(duration)
 } catch {
     print(error)
 }
-
-let duration = Date().timeIntervalSince(start)
-print(duration)
