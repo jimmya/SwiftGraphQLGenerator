@@ -84,6 +84,10 @@
             argument = "--schema Schema.graphql"
             isEnabled = "YES">
          </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--output Sources/Validator/Generated.swift"
+            isEnabled = "YES">
+         </CommandLineArgument>
       </CommandLineArguments>
    </LaunchAction>
    <ProfileAction

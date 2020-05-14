@@ -86,7 +86,7 @@ public final class Generator {
         }
         usedEnumTypes.forEach { enumType in
             guard let match = enumDefinitions[enumType] else { return }
-            var enumNode = Meta.Type(identifier: .named(enumType)).with(kind: .enum(indirect: false)).adding(inheritedType: .string).adding(inheritedType: .named("Decodable")).with(accessLevel: .public)
+            var enumNode = Meta.Type(identifier: .named(enumType)).with(kind: .enum(indirect: false)).adding(inheritedType: .string).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
             match.values.forEach { value in
                 enumNode = enumNode.adding(member: Case(name: value.name.value))
             }
@@ -99,8 +99,14 @@ public final class Generator {
                            .comment("DO NOT MODIFY!"),
                            .empty])
             .adding(members: members)
-        try file.swiftString.write(toFile: outputPath, atomically: true, encoding: .utf8)
-        print("Generated `\(outputPath)` file".green)
+        let outputDirectoryPath = outputPath.split(separator: "/").dropLast().joined(separator: "/")
+        try fileManager.createDirectory(atPath: outputDirectoryPath, withIntermediateDirectories: true, attributes: nil)
+        let created = fileManager.createFile(atPath: outputPath, contents: file.swiftString.data(using: .utf8), attributes: nil)
+        if created {
+            print("Generated `\(outputPath)` file".green)
+        } else {
+            print("Error writing to `\(outputPath)".red)
+        }
     }
     
     func resolveType(_ type: GraphQL.`Type`, wrapInTopLevelOptional: Bool = true) throws -> (TypeIdentifier, String, Bool) {
@@ -146,7 +152,7 @@ public final class Generator {
             throw GraphQLGeneratorError.noQueryName
         }
         print("Generating operation `\(name)` of type `\(operation.operation)`".yellow)
-        var member = Meta.Type(identifier: .init(name: name)).with(kind: .struct).adding(inheritedType: .init(name: "Codable")).with(accessLevel: .public)
+        var member = Meta.Type(identifier: .init(name: name)).with(kind: .struct).adding(inheritedTypes: [.codable, .equatable]).with(accessLevel: .public)
         if !operation.variableDefinitions.isEmpty {
             member = member.adding(member: EmptyLine())
         }
@@ -154,7 +160,7 @@ public final class Generator {
             member = member.adding(member: try mapType(variable.type, name: variable.variable.name.value).0)
         }
         member = member.adding(member: EmptyLine())
-        var data = Meta.Type(identifier: .init(name: "Data")).with(kind: .struct).adding(inheritedType: .init(name: "Decodable")).with(accessLevel: .public)
+        var data = Meta.Type(identifier: .init(name: "Data")).with(kind: .struct).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
         try operation.selectionSet.selections.forEach { selection in
             switch selection {
                 case let field as Field:
@@ -188,7 +194,7 @@ public final class Generator {
     }
 
     func generateCodingKeys(_ selectionSet: SelectionSet) -> TypeBodyMember {
-        var enumType = Meta.Type(identifier: .named("CodingKeys")).with(kind: .enum(indirect: false)).adding(inheritedType: .named("String")).adding(inheritedType: .named("CodingKey")).with(accessLevel: .public)
+        var enumType = Meta.Type(identifier: .named("CodingKeys")).with(kind: .enum(indirect: false)).adding(inheritedType: .string).adding(inheritedType: .named("CodingKey")).with(accessLevel: .public)
         selectionSet.selections.forEach { selection in
             if let field = selection as? Field {
                 let name = field.alias?.value ?? field.name.value
@@ -206,10 +212,12 @@ public final class Generator {
         .adding(parameter:
             FunctionParameter(alias: "from", name: "decoder", type: .named("Decoder"))
             )
-            .adding(member: Assignment(
-            variable: Variable(name: "values"),
-            value: .try | .dot(.named("decoder"), .named("container")) | .call(Tuple().adding(parameter: TupleParameter(name: "keyedBy", value: Value.reference(.dot(.named("CodingKeys"), .named("self"))))))
-        ))
+        if selectionSet.selections.contains(where: { $0 is Field }) { // Only add values keys if we are going to use it
+            function = function.adding(member: Assignment(
+                variable: Variable(name: "values"),
+                value: .try | .dot(.named("decoder"), .named("container")) | .call(Tuple().adding(parameter: TupleParameter(name: "keyedBy", value: Value.reference(.dot(.named("CodingKeys"), .named("self"))))))
+            ))
+        }
         try selectionSet.selections.forEach { selection in
             if let field = selection as? Field {
                 let name = field.alias?.value ?? field.name.value
@@ -233,7 +241,7 @@ public final class Generator {
     }
 
     func mapObjectSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definition: ObjectTypeDefinition, definitions: [Definition]) throws -> TypeBodyMember & FileBodyMember {
-        var selectionSetType = Meta.Type(identifier: .init(name: name ?? typeName)).with(kind: .struct).adding(inheritedType: .init(name: "Decodable")).with(accessLevel: .public)
+        var selectionSetType = Meta.Type(identifier: .init(name: name ?? typeName)).with(kind: .struct).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
         selectionSetType = selectionSetType.adding(member: EmptyLine())
         
         var selectionSets: [(SelectionSet, String)] = []
@@ -276,7 +284,7 @@ public final class Generator {
         guard selectionSet.selections.contains(where: { ($0 as? Field)?.name.value == "__typename" }) else {
             throw GraphQLGeneratorError.unionWithoutTypename
         }
-        var enumType = Meta.Type(identifier: .named(typeName)).with(kind: .enum(indirect: false)).adding(inheritedType: .named("Decodable")).with(accessLevel: .public)
+        var enumType = Meta.Type(identifier: .named(typeName)).with(kind: .enum(indirect: false)).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
         enumType = enumType.adding(member: EmptyLine())
         var nestedFiels: [GraphQL.Field] = []
         var inlineFragmentSelectionSets: [(SelectionSet, String)] = []
@@ -299,7 +307,7 @@ public final class Generator {
         enumType = enumType.adding(member: codingKeyEnum)
         enumType = enumType.adding(member: EmptyLine())
         
-        var initFunction = Function(kind: .`init`).with(throws: true)
+        var initFunction = Function(kind: .`init`).with(throws: true).with(accessLevel: .public)
         .adding(parameter:
             FunctionParameter(alias: "from", name: "decoder", type: .named("Decoder"))
             )
@@ -308,7 +316,7 @@ public final class Generator {
             value: .try | .dot(.named("decoder"), .named("container")) | .call(Tuple().adding(parameter: TupleParameter(name: "keyedBy", value: Value.reference(.dot(.named("ItemTypeKey"), .named("self"))))))))
         initFunction = initFunction.adding(member: Assignment(
         variable: Variable(name: "type"),
-        value: .try | .dot(.named("typeValues"), .named("decode")) | .call(Tuple().adding(parameter: TupleParameter(value: Value.reference(.dot(.named("String"), .named("self"))))).adding(parameter: TupleParameter(name: "forKey", value: Value.reference(.named(".typeName")))))))
+        value: .try | .dot(.named("typeValues"), .named("decode")) | .call(Tuple().adding(parameter: TupleParameter(value: Value.reference(.dot(.type(.string), .named("self"))))).adding(parameter: TupleParameter(name: "forKey", value: Value.reference(.named(".typeName")))))))
         
         var initSwitch = Switch(reference: .named("type"))
         selectionSet.selections.forEach { selection in

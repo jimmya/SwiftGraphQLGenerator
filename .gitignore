@@ -3,6 +3,3 @@
 /Packages
 /*.xcodeproj
 xcuserdata/
-
-# Generated
-Generated.swift

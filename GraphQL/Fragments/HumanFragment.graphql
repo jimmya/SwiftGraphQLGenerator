@@ -1,0 +1,4 @@
+fragment HumanFragment on Human {
+  name
+  appearsIn
+}

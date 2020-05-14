@@ -1,5 +1,5 @@
-mutation AddFilm($title: String!) {
-  createFilm(title: $title, episodeId: 1) {
-    title
+mutation CreateReview($stars: Int!) {
+  createReview(episode: NEWHOPE, review: { stars: $stars }) {
+    stars
   }
 }

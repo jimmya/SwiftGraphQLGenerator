@@ -1,0 +1,14 @@
+query Search {
+  search(text: "") {
+    __typename
+    ... on Human {
+      ... HumanFragment
+    }
+    ... on Droid {
+      name
+    }
+    ... on Starship {
+      name
+    }
+  }
+}
