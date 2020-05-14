@@ -1,0 +1,12 @@
+query Persons {
+  allPersons {
+    name
+    films {
+      title
+      characters {
+        id
+        ...PersonFragment
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+fragment PersonFragment on Person {
+  birthYear
+  isPublished
+  name
+  hairColor
+  height
+  homeworld {
+    name
+    terrain
+    surfaceWater
+    population
+  }
+}

@@ -1,0 +1,5 @@
+mutation AddFilm($title: String!) {
+  createFilm(title: $title, episodeId: 1) {
+    title
+  }
+}
