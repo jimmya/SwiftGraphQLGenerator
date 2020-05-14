@@ -5,41 +5,9 @@ import GraphQLGenerator
 
 let start = Date()
 
-public extension Array {
-    
-    subscript (safe index: Int) -> Element? {
-        get {
-            return index < count && index >= 0 ? self[index] : nil
-        }
-        set {
-            if let element = newValue, index < count, index >= 0 {
-                self[index] = element
-            }
-        }
-    }
-}
-
 let cwd = getcwd(nil, Int(PATH_MAX))
 defer {
     free(cwd)
-}
-
-extension String {
-    func capitalizingFirstLetter() -> String {
-        return prefix(1).uppercased() + self.lowercased().dropFirst()
-    }
-    
-    func lowercasingFirstLetter() -> String {
-        return prefix(1).lowercased() + self.dropFirst()
-    }
-    
-    mutating func capitalizeFirstLetter() {
-        self = self.capitalizingFirstLetter()
-    }
-    
-    mutating func lowercaseFirstLetter() {
-        self = self.lowercasingFirstLetter()
-    }
 }
 
 let workingDirectory: String
@@ -66,76 +34,41 @@ let queryString = String(data: queryData, encoding: .utf8)!
 
 var members: [FileBodyMember] = []
 
-struct TypeProperties {
-    
-    let isArray: Bool
-    let isOptional: Bool
-    let isArrayValueOptional: Bool
-    var typeName: String
-}
-
-enum Primitives: String {
-    case String
-    case Int
-    case Float
-    case Boolean
-    case ID
-    
-    var typeName: String {
-        switch self {
-            case .ID: return "String"
-            case .Boolean: return "Bool"
-            default: return rawValue
+func resolveType(_ type: GraphQL.`Type`, wrapInTopLevelOptional: Bool = true) throws -> (TypeIdentifier, String, Bool) {
+    var typeIdentifier: TypeIdentifier?
+    var isOptional = false
+    var typeName: String?
+    for type in type.toArray().reversed() {
+        if type is NonNullType {
+            isOptional = false
+        } else if isOptional {
+            typeIdentifier = .optional(wrapped: typeIdentifier)
+            isOptional = false
+        } else if type is ListType {
+            typeIdentifier = .array(element: typeIdentifier)
+            isOptional = true
+        } else if let named = type as? NamedType {
+            typeIdentifier = .init(name: named.name.value)
+            isOptional = true
+            typeName = named.name.value
         }
     }
-}
-
-func resolveType(_ type: GraphQL.`Type`) throws -> TypeProperties {
-    var isArray = false
-    var isOptional = true
-    var isArrayValueOptional = true
-    var typeName: String?
-    var currentType: GraphQL.`Type`? = type
-    repeat {
-        if let named = currentType as? NamedType {
-            typeName = named.name.value
-            currentType = nil
-        } else if let nonNull = currentType as? NonNullType {
-            if isArray {
-                isArrayValueOptional = false
-            } else {
-                isOptional = false
-            }
-            currentType = nonNull.type
-        } else if let list = currentType as? ListType {
-            isArray = true
-            currentType = list.type
-        }
-    } while currentType != nil
-    let sanitizedTypeName: String
-    if let name = typeName {
-        sanitizedTypeName = Primitives(rawValue: name)?.typeName ?? name
-    } else {
+    if isOptional, wrapInTopLevelOptional {
+        typeIdentifier = .optional(wrapped: typeIdentifier)
+    }
+    guard let identifier = typeIdentifier, let name = typeName else {
         throw GraphQLGeneratorError.namelessType
     }
-    return .init(isArray: isArray, isOptional: isOptional, isArrayValueOptional: isArrayValueOptional, typeName: sanitizedTypeName)
+    return (identifier, name, isOptional)
 }
 
 func mapType(_ type: GraphQL.`Type`, name: String) throws -> (TypeBodyMember, String) {
-    let properties = try resolveType(type)
-    let typeIsOptional = properties.isArray ? properties.isArrayValueOptional : properties.isOptional
-    let objectType: TypeIdentifier = typeIsOptional ? .optional(wrapped: .named(properties.typeName)) : .named(properties.typeName)
-    let type: TypeIdentifier
-    if properties.isArray {
-        type = properties.isOptional ? .optional(wrapped: .array(element: objectType)) : .array(element: objectType)
-    } else {
-        type = objectType
-    }
+    let (identifier, typeName, _) = try resolveType(type)
     return (Property(variable:
         Variable(name: name)
             .with(immutable: true)
-            .with(type: type)
-    ).with(accessLevel: .public), properties.typeName)
+            .with(type: identifier)
+    ).with(accessLevel: .public), typeName)
 }
 
 func mapOperation(_ operation: OperationDefinition, schema: Document) throws -> FileBodyMember {
@@ -198,23 +131,15 @@ func generateInit(_ selectionSet: SelectionSet, definition: ObjectTypeDefinition
         if let field = selection as? Field {
             let name = field.alias?.value ?? field.name.value
             guard let definition = definition.fields.first(where: { $0.name.value == field.name.value }) else { return }
-            let properties = try resolveType(definition.type)
-            let reference: Reference = properties.isArray ? Reference.named("[\(properties.typeName)]") : Reference.named(properties.typeName)
-            if properties.isOptional {
-                let tuple = Tuple()
-                    .adding(parameter: TupleParameter(value: Value.reference(.dot(reference, .named("self")))))
-                    .adding(parameter: TupleParameter(name: "forKey", value: Value.reference(.dot(.named("CodingKeys"), .named(name)))))
-                function = function.adding(member: Assignment(variable: Reference.named(name), value: .try |
-                    .dot(.named("values"), .named("decodeIfPresent")) |
-                    .call(tuple)))
-            } else {
-                let tuple = Tuple()
-                    .adding(parameter: TupleParameter(value: Value.reference(.dot(reference, .named("self")))))
-                    .adding(parameter: TupleParameter(name: "forKey", value: Value.reference(.dot(.named("CodingKeys"), .named(name)))))
-                function = function.adding(member: Assignment(variable: Reference.named(name), value: .try |
-                    .dot(.named("values"), .named("decode")) |
-                    .call(tuple)))
-            }
+            let (property, _, isOptional) = try resolveType(definition.type, wrapInTopLevelOptional: false)
+            let reference = Reference.type(property)
+            let method: Reference = isOptional ? .named("decodeIfPresent") : .named("decode")
+             let tuple = Tuple()
+                .adding(parameter: TupleParameter(value: Value.reference(.dot(reference, .named("self")))))
+                .adding(parameter: TupleParameter(name: "forKey", value: Value.reference(.dot(.named("CodingKeys"), .named(name)))))
+            function = function.adding(member: Assignment(variable: Reference.named(name), value: .try |
+                .dot(.named("values"), method) |
+                .call(tuple)))
         } else if let fragment = selection as? FragmentSpread {
             let name = fragment.name.value.lowercasingFirstLetter()
             let tuple = Tuple().adding(parameter: TupleParameter(name: "with", value: Value.reference(.named("decoder"))))
