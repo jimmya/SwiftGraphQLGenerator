@@ -6,5 +6,5 @@ Generate Codable and Equatable objects to communicate with GraphQL.
 
 ### [Mint](https://github.com/yonaskolb/mint)
 ```sh
-mint install jimmya/GraphQLGenerator
+mint install jimmya/SwiftGraphQLGenerator
 ```
