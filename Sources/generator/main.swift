@@ -48,7 +48,8 @@ func resolveType(_ type: GraphQL.`Type`, wrapInTopLevelOptional: Bool = true) th
             typeIdentifier = .array(element: typeIdentifier)
             isOptional = true
         } else if let named = type as? NamedType {
-            typeIdentifier = .init(name: named.name.value)
+            let sanitizedType: TypeIdentifierName = Primitives(rawValue: named.name.value)?.type ?? .custom(named.name.value)
+            typeIdentifier = .init(name: sanitizedType)
             isOptional = true
             typeName = named.name.value
         }
@@ -118,10 +119,24 @@ func mapOperation(_ operation: OperationDefinition, schema: Document) throws -> 
 
 var usedEnumTypes: [String] = []
 
+func generateCodingKeys(_ selectionSet: SelectionSet) -> TypeBodyMember {
+    var enumType = Meta.Type(identifier: .named("CodingKeys")).with(kind: .enum(indirect: false)).adding(inheritedType: .named("String")).adding(inheritedType: .named("CodingKey")).with(accessLevel: .public)
+    selectionSet.selections.forEach { selection in
+        if let field = selection as? Field {
+            let name = field.alias?.value ?? field.name.value
+            enumType = enumType.adding(member: Case(name: name))
+        } else if let fragment = selection as? FragmentSpread {
+            let name = fragment.name.value.lowercasingFirstLetter()
+            enumType = enumType.adding(member: Case(name: name))
+        }
+    }
+    return enumType
+}
+
 func generateInit(_ selectionSet: SelectionSet, definition: ObjectTypeDefinition) throws -> TypeBodyMember {
-    var function = Function(kind: .`init`).with(throws: true)
+    var function = Function(kind: .`init`).with(throws: true).with(accessLevel: .public)
     .adding(parameter:
-        FunctionParameter(alias: "with", name: "decoder", type: .named("Decoder"))
+        FunctionParameter(alias: "from", name: "decoder", type: .named("Decoder"))
         )
         .adding(member: Assignment(
         variable: Variable(name: "values"),
@@ -142,7 +157,7 @@ func generateInit(_ selectionSet: SelectionSet, definition: ObjectTypeDefinition
                 .call(tuple)))
         } else if let fragment = selection as? FragmentSpread {
             let name = fragment.name.value.lowercasingFirstLetter()
-            let tuple = Tuple().adding(parameter: TupleParameter(name: "with", value: Value.reference(.named("decoder"))))
+            let tuple = Tuple().adding(parameter: TupleParameter(name: "from", value: Value.reference(.named("decoder"))))
             function = function.adding(member: Assignment(variable: Reference.named(name), value: .try | .named(fragment.name.value) | .call(tuple)))
         }
     }
@@ -150,7 +165,7 @@ func generateInit(_ selectionSet: SelectionSet, definition: ObjectTypeDefinition
 }
 
 func mapObjectSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definition: ObjectTypeDefinition, definitions: [Definition]) throws -> TypeBodyMember & FileBodyMember {
-    var selectionSetType = Meta.Type(identifier: .init(name: name ?? typeName)).with(kind: .struct).adding(inheritedType: .init(name: "Decodable"))
+    var selectionSetType = Meta.Type(identifier: .init(name: name ?? typeName)).with(kind: .struct).adding(inheritedType: .init(name: "Decodable")).with(accessLevel: .public)
     selectionSetType = selectionSetType.adding(member: EmptyLine())
     
     var selectionSets: [(SelectionSet, String)] = []
@@ -176,6 +191,8 @@ func mapObjectSelectionSet(_ selectionSet: SelectionSet, typeName: String, name:
             ).with(accessLevel: .public))
         }
     }
+    selectionSetType = selectionSetType.adding(member: EmptyLine())
+    selectionSetType = selectionSetType.adding(member: generateCodingKeys(selectionSet))
     selectionSetType = selectionSetType.adding(member: EmptyLine())
     selectionSetType = selectionSetType.adding(member: try generateInit(selectionSet, definition: definition))
     try selectionSets.forEach { set in
@@ -231,7 +248,7 @@ func mapUnionSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: 
         guard let caseTypeName = inlineFragment.typeCondition?.name.value else { return }
         let name = caseTypeName.replacingOccurrences(of: typeName, with: "").lowercasingFirstLetter()
         var switchCase = SwitchCase(name: .nonEnum("\"\(caseTypeName)\""))
-        let variable = .try | .named(caseTypeName) | .tuple(Tuple().adding(parameter: TupleParameter(name: "with", value: Value.reference(.named("decoder")))))
+        let variable = .try | .named(caseTypeName) | .tuple(Tuple().adding(parameter: TupleParameter(name: "from", value: Value.reference(.named("decoder")))))
         let assignment = Assignment(variable: Reference.named("self"), value: .named(".\(name)") | .call(Tuple().adding(parameter: TupleParameter(name: name, value: variable))))
         switchCase = switchCase.adding(member: assignment)
         initSwitch = initSwitch.adding(case: switchCase)
@@ -305,7 +322,7 @@ do {
     let enumDefintions = schema.definitions.compactMap { $0 as? EnumTypeDefinition }
     usedEnumTypes.forEach { enumType in
         guard let match = enumDefintions.first(where: { $0.name.value == enumType }) else { return }
-        var enumNode = Meta.Type(identifier: .named(enumType)).with(kind: .enum(indirect: false)).adding(inheritedType: .string).adding(inheritedType: .named("Decodable"))
+        var enumNode = Meta.Type(identifier: .named(enumType)).with(kind: .enum(indirect: false)).adding(inheritedType: .string).adding(inheritedType: .named("Decodable")).with(accessLevel: .public)
         match.values.forEach { value in
             enumNode = enumNode.adding(member: Case(name: value.name.value))
         }
