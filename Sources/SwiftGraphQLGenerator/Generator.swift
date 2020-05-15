@@ -346,11 +346,12 @@ public final class Generator {
         let inlineFragments = selectionSet.selections.compactMap { $0 as? InlineFragment}
         let inlineFragmentDefinitions: [(type: String, fragment: InlineFragment, count: Int?)] = inlineFragments.reduce(into: []) { (result, fragment) in
             guard let type = fragment.typeCondition?.name.value else { return }
+            let typeCount = inlineFragments.filter { $0.typeCondition?.name.value == type }.count
             let count: Int?
             if let currentCount = result.last(where: { $0.type == type })?.count {
                 count = currentCount + 1
             } else {
-                count = inlineFragments.contains(fragment) ? 1 : nil
+                count = typeCount > 1 ? 1 : nil
             }
             result.append((type, fragment, count))
         }

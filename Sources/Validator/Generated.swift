@@ -29,6 +29,7 @@ public struct HumanFragment: Decodable, Equatable {
         public let name: String
         public let asHuman1: Optional<Human1>
         public let asHuman2: Optional<Human2>
+        public let asDroid: Optional<Droid>
 
         public enum CodingKeys: String, CodingKey {
             case __typename
@@ -40,12 +41,18 @@ public struct HumanFragment: Decodable, Equatable {
             name = try values.decode(String.self, forKey: CodingKeys.name)
             let type = try values.decode(String.self, forKey: .__typename)
             switch type {
+            case "Droid":
+                asHuman1 = nil
+                asHuman2 = nil
+                asDroid = try? Droid(from: decoder)
             case "Human":
                 asHuman1 = try? Human1(from: decoder)
                 asHuman2 = try? Human2(from: decoder)
+                asDroid = nil
             default:
                 asHuman1 = nil
                 asHuman2 = nil
+                asDroid = nil
             }
         }
 
@@ -74,6 +81,20 @@ public struct HumanFragment: Decodable, Equatable {
             public init(from decoder: Decoder) throws {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
                 homePlanet = try values.decodeIfPresent(String.self, forKey: CodingKeys.homePlanet)
+            }
+        }
+
+        public struct Droid: Decodable, Equatable {
+
+            public let primaryFunction: Optional<String>
+
+            public enum CodingKeys: String, CodingKey {
+                case primaryFunction
+            }
+
+            public init(from decoder: Decoder) throws {
+                let values = try decoder.container(keyedBy: CodingKeys.self)
+                primaryFunction = try values.decodeIfPresent(String.self, forKey: CodingKeys.primaryFunction)
             }
         }
     }
