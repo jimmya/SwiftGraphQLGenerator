@@ -8,17 +8,50 @@ import Foundation
 public struct HumanFragment: Decodable, Equatable {
 
     public let name: String
+    public let friends: Optional<Character>
     public let appearsIn: Optional<Episode>
 
     public enum CodingKeys: String, CodingKey {
         case name
+        case friends
         case appearsIn
     }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         name = try values.decode(String.self, forKey: CodingKeys.name)
+        friends = try values.decode(Optional<Character>.self, forKey: CodingKeys.friends)
         appearsIn = try values.decode(Optional<Episode>.self, forKey: CodingKeys.appearsIn)
+    }
+
+    public struct Character: Decodable, Equatable {
+
+        public let name: String
+        public let asHuman: Optional<Human>
+
+        public enum CodingKeys: String, CodingKey {
+            case __typename
+            case name
+        }
+
+        public init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            name = try values.decode(String.self, forKey: CodingKeys.name)
+        }
+
+        public struct Human: Decodable, Equatable {
+
+            public let mass: Optional<Double>
+
+            public enum CodingKeys: String, CodingKey {
+                case mass
+            }
+
+            public init(from decoder: Decoder) throws {
+                let values = try decoder.container(keyedBy: CodingKeys.self)
+                mass = try values.decodeIfPresent(Double.self, forKey: CodingKeys.mass)
+            }
+        }
     }
 }
 
@@ -58,66 +91,55 @@ public struct Search: Codable, Equatable {
             case droid(droid: Droid)
             case starship(starship: Starship)
 
+            enum ItemType: String, Decodable {
+                case human = "Human"
+                case droid = "Droid"
+                case starship = "Starship"
+            }
+
             enum ItemTypeKey: String, CodingKey {
                 case typeName = "__typename"
             }
 
             public init(from decoder: Decoder) throws {
                 let typeValues = try decoder.container(keyedBy: ItemTypeKey.self)
-                let type = try typeValues.decode(String.self, forKey: .typeName)
+                let type = try typeValues.decode(ItemType.self, forKey: .typeName)
                 switch type {
-                case "Human":
+                case .human:
                     self = .human(human: try Human(from: decoder))
-                case "Droid":
+                case .droid:
                     self = .droid(droid: try Droid(from: decoder))
-                case "Starship":
+                case .starship:
                     self = .starship(starship: try Starship(from: decoder))
-                default:
-                    throw DecodingError.dataCorruptedError(
-                        forKey: ItemTypeKey.typeName,
-                        in: typeValues,
-                        debugDescription: "Type \(type) is not a valid type for \(SearchResult.self)"
-                    )
                 }
             }
-        }
 
-        public struct Human: Decodable, Equatable {
+            public struct Human: Decodable, Equatable {
 
-            public let humanFragment: HumanFragment
+                public let humanFragment: HumanFragment
 
-            public enum CodingKeys: String, CodingKey {
-                case humanFragment
+                public enum CodingKeys: String, CodingKey {
+                    case humanFragment
+                }
+
+                public init(from decoder: Decoder) throws { humanFragment = try HumanFragment(from: decoder) }
             }
 
-            public init(from decoder: Decoder) throws { humanFragment = try HumanFragment(from: decoder) }
-        }
+            public struct Droid: Decodable, Equatable {
 
-        public struct Droid: Decodable, Equatable {
+                public let name: String
 
-            public let name: String
+                public enum CodingKeys: String, CodingKey {
+                    case name
+                }
 
-            public enum CodingKeys: String, CodingKey {
-                case name
+                public init(from decoder: Decoder) throws {
+                    let values = try decoder.container(keyedBy: CodingKeys.self)
+                    name = try values.decode(String.self, forKey: CodingKeys.name)
+                }
             }
 
-            public init(from decoder: Decoder) throws {
-                let values = try decoder.container(keyedBy: CodingKeys.self)
-                name = try values.decode(String.self, forKey: CodingKeys.name)
-            }
-        }
-
-        public struct Starship: Decodable, Equatable {
-
-            public let name: String
-
-            public enum CodingKeys: String, CodingKey {
-                case name
-            }
-
-            public init(from decoder: Decoder) throws {
-                let values = try decoder.container(keyedBy: CodingKeys.self)
-                name = try values.decode(String.self, forKey: CodingKeys.name)
+            public struct Starship: Decodable, Equatable {
             }
         }
     }

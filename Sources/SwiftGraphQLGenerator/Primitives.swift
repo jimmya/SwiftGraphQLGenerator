@@ -13,7 +13,7 @@ public enum Primitives: String {
         switch self {
             case .ID: return .string
             case .Int: return .int
-            case .Float: return .float
+            case .Float: return .double
             case .String: return .string
             case .Boolean: return .bool
         }

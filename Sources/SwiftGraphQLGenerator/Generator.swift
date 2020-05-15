@@ -239,7 +239,94 @@ public final class Generator {
         }
         return function
     }
+    
+    func generateInit(_ selectionSet: SelectionSet, definition: InterfaceTypeDefinition) throws -> TypeBodyMember {
+        var function = Function(kind: .`init`).with(throws: true).with(accessLevel: .public)
+        .adding(parameter:
+            FunctionParameter(alias: "from", name: "decoder", type: .named("Decoder"))
+            )
+        if selectionSet.selections.contains(where: { $0 is Field }) { // Only add values keys if we are going to use it
+            function = function.adding(member: Assignment(
+                variable: Variable(name: "values"),
+                value: .try | .dot(.named("decoder"), .named("container")) | .call(Tuple().adding(parameter: TupleParameter(name: "keyedBy", value: Value.reference(.dot(.named("CodingKeys"), .named("self"))))))
+            ))
+        }
+        try selectionSet.selections.forEach { selection in
+            if let field = selection as? Field {
+                let name = field.alias?.value ?? field.name.value
+                guard let definition = definition.fields.first(where: { $0.name.value == field.name.value }) else { return }
+                let (property, _, isOptional) = try resolveType(definition.type, wrapInTopLevelOptional: false)
+                let reference = Reference.type(property)
+                let method: Reference = isOptional ? .named("decodeIfPresent") : .named("decode")
+                 let tuple = Tuple()
+                    .adding(parameter: TupleParameter(value: Value.reference(.dot(reference, .named("self")))))
+                    .adding(parameter: TupleParameter(name: "forKey", value: Value.reference(.dot(.named("CodingKeys"), .named(name)))))
+                function = function.adding(member: Assignment(variable: Reference.named(name), value: .try |
+                    .dot(.named("values"), method) |
+                    .call(tuple)))
+            } else if let fragment = selection as? FragmentSpread {
+                let name = fragment.name.value.lowercasingFirstLetter()
+                let tuple = Tuple().adding(parameter: TupleParameter(name: "from", value: Value.reference(.named("decoder"))))
+                function = function.adding(member: Assignment(variable: Reference.named(name), value: .try | .named(fragment.name.value) | .call(tuple)))
+            }
+        }
+        return function
+    }
 
+    func mapInterfaceSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definition: InterfaceTypeDefinition, definitions: [Definition]) throws -> [TypeBodyMember & FileBodyMember] {
+        var selectionSetType = Meta.Type(identifier: .init(name: name ?? typeName)).with(kind: .struct).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
+        selectionSetType = selectionSetType.adding(member: EmptyLine())
+        
+        var selectionSets: [(SelectionSet, String)] = []
+        var inlineFragmentSelectionSets: [(SelectionSet, String)] = []
+        try selectionSet.selections.forEach { selection in
+            if let field = selection as? Field {
+                guard let definition = definition.fields.first(where: { $0.name.value == field.name.value }) else { return }
+                let name = field.alias?.value ?? field.name.value
+                let type = try mapType(definition.type, name: name)
+                let isEnum = enumDefinitions.keys.contains(type.1)
+                if isEnum {
+                    usedEnumTypes.append(type.1)
+                }
+                selectionSetType = selectionSetType.adding(member: type.0)
+                if let selectionSet = field.selectionSet {
+                    selectionSets.append((selectionSet, type.1))
+                }
+            } else if let fragment = selection as? FragmentSpread {
+                selectionSetType = selectionSetType.adding(member: Property(variable:
+                    Variable(name: fragment.name.value.lowercasingFirstLetter())
+                        .with(immutable: true)
+                        .with(type: .named(fragment.name.value))
+                ).with(accessLevel: .public))
+            } else if let inlineFragment = selection as? InlineFragment {
+                guard let caseTypeName = inlineFragment.typeCondition?.name.value else { return }
+                inlineFragmentSelectionSets.append((inlineFragment.selectionSet, caseTypeName))
+                selectionSetType = selectionSetType.adding(member: Property(variable:
+                    Variable(name: "as\(caseTypeName)")
+                        .with(immutable: true)
+                        .with(type: .optional(wrapped: .init(name: caseTypeName)))
+                ).with(accessLevel: .public))
+            }
+        }
+        selectionSetType = selectionSetType.adding(member: EmptyLine())
+        selectionSetType = selectionSetType.adding(member: generateCodingKeys(selectionSet))
+        selectionSetType = selectionSetType.adding(member: EmptyLine())
+        selectionSetType = selectionSetType.adding(member: try generateInit(selectionSet, definition: definition))
+        try selectionSets.forEach { set in
+            let (selectionSet, name) = set
+            selectionSetType = selectionSetType.adding(member: EmptyLine())
+            selectionSetType = selectionSetType.adding(members: try mapSelectionSet(selectionSet, typeName: name, definitions: definitions))
+        }
+        
+        try inlineFragmentSelectionSets.forEach { item in
+            let (selectionSet, name) = item
+            selectionSetType = selectionSetType.adding(member: EmptyLine())
+            selectionSetType = selectionSetType.adding(members: try mapSelectionSet(selectionSet, typeName: name, definitions: definitions))
+        }
+        
+        return [selectionSetType]
+    }
+    
     func mapObjectSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definition: ObjectTypeDefinition, definitions: [Definition]) throws -> TypeBodyMember & FileBodyMember {
         var selectionSetType = Meta.Type(identifier: .init(name: name ?? typeName)).with(kind: .struct).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
         selectionSetType = selectionSetType.adding(member: EmptyLine())
@@ -280,25 +367,24 @@ public final class Generator {
         return selectionSetType
     }
 
-    func mapUnionSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definition: UnionTypeDefinition, definitions: [Definition]) throws -> [TypeBodyMember & FileBodyMember] {
+    func mapUnionSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definition: UnionTypeDefinition, definitions: [Definition]) throws -> TypeBodyMember & FileBodyMember {
         guard selectionSet.selections.contains(where: { ($0 as? Field)?.name.value == "__typename" }) else {
             throw GraphQLGeneratorError.unionWithoutTypename
         }
         var enumType = Meta.Type(identifier: .named(typeName)).with(kind: .enum(indirect: false)).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
         enumType = enumType.adding(member: EmptyLine())
-        var nestedFiels: [GraphQL.Field] = []
-        var inlineFragmentSelectionSets: [(SelectionSet, String)] = []
-        selectionSet.selections.forEach { selection in
-            if let field = selection as? Field {
-                nestedFiels.append(field)
-            } else if let inlineFragment = selection as? InlineFragment {
-                guard let caseTypeName = inlineFragment.typeCondition?.name.value else { return }
-                let name = caseTypeName.replacingOccurrences(of: typeName, with: "").lowercasingFirstLetter()
-                let enumCase = Case(name: name).adding(parameter: CaseParameter(name: name, type: .named(caseTypeName)))
-                enumType = enumType.adding(member: enumCase)
-                inlineFragmentSelectionSets.append((inlineFragment.selectionSet, caseTypeName))
-            }
+        definition.types.forEach { type in
+            let name = type.name.value.lowercasingFirstLetter()
+            let enumCase = Case(name: name).adding(parameter: CaseParameter(name: name, type: .named(type.name.value)))
+            enumType = enumType.adding(member: enumCase)
         }
+        
+        enumType = enumType.adding(member: EmptyLine())
+        var typeEnum = Meta.Type(identifier: .named("ItemType")).with(kind: .enum(indirect: false)).adding(inheritedType: .string).adding(inheritedType: .decodable)
+        definition.types.forEach { type in
+            typeEnum = typeEnum.adding(member: Case(name: type.name.value.lowercasingFirstLetter()).with(value: .string(type.name.value)))
+        }
+        enumType = enumType.adding(member: typeEnum)
         
         enumType = enumType.adding(member: EmptyLine())
         var codingKeyEnum = Meta.Type(identifier: .named("ItemTypeKey")).with(kind: .enum(indirect: false)).adding(inheritedType: .string).adding(inheritedType: .named("CodingKey"))
@@ -316,48 +402,43 @@ public final class Generator {
             value: .try | .dot(.named("decoder"), .named("container")) | .call(Tuple().adding(parameter: TupleParameter(name: "keyedBy", value: Value.reference(.dot(.named("ItemTypeKey"), .named("self"))))))))
         initFunction = initFunction.adding(member: Assignment(
         variable: Variable(name: "type"),
-        value: .try | .dot(.named("typeValues"), .named("decode")) | .call(Tuple().adding(parameter: TupleParameter(value: Value.reference(.dot(.type(.string), .named("self"))))).adding(parameter: TupleParameter(name: "forKey", value: Value.reference(.named(".typeName")))))))
+        value: .try | .dot(.named("typeValues"), .named("decode")) | .call(Tuple().adding(parameter: TupleParameter(value: Value.reference(.dot(.type(.named("ItemType")), .named("self"))))).adding(parameter: TupleParameter(name: "forKey", value: Value.reference(.named(".typeName")))))))
         
         var initSwitch = Switch(reference: .named("type"))
-        selectionSet.selections.forEach { selection in
-            guard let inlineFragment = selection as? InlineFragment else { return }
-            guard let caseTypeName = inlineFragment.typeCondition?.name.value else { return }
-            let name = caseTypeName.replacingOccurrences(of: typeName, with: "").lowercasingFirstLetter()
-            var switchCase = SwitchCase(name: .raw("\"\(caseTypeName)\""))
-            let variable = .try | .named(caseTypeName) | .tuple(Tuple().adding(parameter: TupleParameter(name: "from", value: Value.reference(.named("decoder")))))
+        definition.types.forEach { type in
+            let name = type.name.value.lowercasingFirstLetter()
+            var switchCase = SwitchCase(name: .custom(name))
+            let variable = .try | .named(type.name.value) | .tuple(Tuple().adding(parameter: TupleParameter(name: "from", value: Value.reference(.named("decoder")))))
             let assignment = Assignment(variable: Reference.named("self"), value: .named(".\(name)") | .call(Tuple().adding(parameter: TupleParameter(name: name, value: variable))))
             switchCase = switchCase.adding(member: assignment)
             initSwitch = initSwitch.adding(case: switchCase)
         }
-        
-        let forKey = TupleParameter(name: "forKey", value: Value.reference(.dot(.named("ItemTypeKey"), .named("typeName"))))
-        let errorIn = TupleParameter(name: "in", value: Value.reference(.named("typeValues")))
-        let debugDescription = TupleParameter(name: "debugDescription", value: Value.string("Type \\(type) is not a valid type for \\(\(typeName).self)"))
-        let throwing = Reference.throw | Reference.named("DecodingError.dataCorruptedError") | .call(Tuple().adding(parameter: forKey).adding(parameter: errorIn).adding(parameter: debugDescription))
-        var switchCase = SwitchCase(name: .default)
-        switchCase = switchCase.adding(member: throwing)
-        initSwitch = initSwitch.adding(case: switchCase)
+
         initFunction = initFunction.adding(member: initSwitch)
         
         enumType = enumType.adding(member: initFunction)
         
-        var members: [TypeBodyMember & FileBodyMember] = []
-        try inlineFragmentSelectionSets.forEach { item in
-            let (selectionSet, name) = item
-            members.append(EmptyLine())
-            let items = try mapSelectionSet(selectionSet, typeName: name, definitions: definitions)
-            members.append(contentsOf: items)
+        try definition.types.forEach { type in
+            enumType = enumType.adding(member: EmptyLine())
+            let inlineFragments = selectionSet.selections.compactMap { $0 as? InlineFragment }
+            if let selection = inlineFragments.first(where: { $0.typeCondition?.name.value == type.name.value }) {
+                let items = try mapSelectionSet(selection.selectionSet, typeName: type.name.value, definitions: definitions)
+                enumType = enumType.adding(members: items)
+            } else {
+                let item = Meta.Type(identifier: .init(name: type.name.value)).with(kind: .struct).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
+                enumType = enumType.adding(member: item)
+            }
         }
-        return [enumType] + members
+        return enumType
     }
 
     func mapSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definitions: [Definition]) throws -> [TypeBodyMember & FileBodyMember] {
         if let definition = unionDefinitions[typeName] {
-            return try mapUnionSelectionSet(selectionSet, typeName: typeName, name: name, definition: definition, definitions: definitions)
+            return try [mapUnionSelectionSet(selectionSet, typeName: typeName, name: name, definition: definition, definitions: definitions)]
         } else if let definition = objectDefinitions[typeName] {
             return try [mapObjectSelectionSet(selectionSet, typeName: typeName, name: name, definition: definition, definitions: definitions)]
         } else if let definition = interfaceDefinitions[typeName] {
-            return []
+            return try mapInterfaceSelectionSet(selectionSet, typeName: typeName, name: name, definition: definition, definitions: definitions)
         }
         throw GraphQLGeneratorError.unexpectedType
     }

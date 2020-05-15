@@ -1,4 +1,11 @@
 fragment HumanFragment on Human {
   name
+  friends {
+    __typename
+    name
+    ... on Human {
+      mass
+    }
+  }
   appearsIn
 }
