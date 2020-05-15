@@ -14,51 +14,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "GraphQLGenerator"
-               BuildableName = "GraphQLGenerator"
-               BlueprintName = "GraphQLGenerator"
-               ReferencedContainer = "container:">
-            </BuildableReference>
-         </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "generator"
-               BuildableName = "generator"
-               BlueprintName = "generator"
-               ReferencedContainer = "container:">
-            </BuildableReference>
-         </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "NO"
-            buildForArchiving = "NO"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "GraphQLGeneratorTests"
-               BuildableName = "GraphQLGeneratorTests"
-               BlueprintName = "GraphQLGeneratorTests"
-               ReferencedContainer = "container:">
-            </BuildableReference>
-         </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "Tester"
-               BuildableName = "Tester"
-               BlueprintName = "Tester"
+               BlueprintIdentifier = "SwiftGraphQLGenerator"
+               BuildableName = "SwiftGraphQLGenerator"
+               BlueprintName = "SwiftGraphQLGenerator"
                ReferencedContainer = "container:">
             </BuildableReference>
          </BuildActionEntry>
@@ -73,6 +31,34 @@
                BlueprintIdentifier = "Validator"
                BuildableName = "Validator"
                BlueprintName = "Validator"
+               ReferencedContainer = "container:">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "swift-graphql-generator"
+               BuildableName = "swift-graphql-generator"
+               BlueprintName = "swift-graphql-generator"
+               ReferencedContainer = "container:">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "GraphQLGeneratorTests"
+               BuildableName = "GraphQLGeneratorTests"
+               BlueprintName = "GraphQLGeneratorTests"
                ReferencedContainer = "container:">
             </BuildableReference>
          </BuildActionEntry>
@@ -109,9 +95,9 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "generator"
-            BuildableName = "generator"
-            BlueprintName = "generator"
+            BlueprintIdentifier = "swift-graphql-generator"
+            BuildableName = "swift-graphql-generator"
+            BlueprintName = "swift-graphql-generator"
             ReferencedContainer = "container:">
          </BuildableReference>
       </MacroExpansion>
@@ -125,9 +111,9 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "generator"
-            BuildableName = "generator"
-            BlueprintName = "generator"
+            BlueprintIdentifier = "swift-graphql-generator"
+            BuildableName = "swift-graphql-generator"
+            BlueprintName = "swift-graphql-generator"
             ReferencedContainer = "container:">
          </BuildableReference>
       </MacroExpansion>

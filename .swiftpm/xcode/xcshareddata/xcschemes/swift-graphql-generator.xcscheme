@@ -14,9 +14,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "generator"
-               BuildableName = "generator"
-               BlueprintName = "generator"
+               BlueprintIdentifier = "swift-graphql-generator"
+               BuildableName = "swift-graphql-generator"
+               BlueprintName = "swift-graphql-generator"
                ReferencedContainer = "container:">
             </BuildableReference>
          </BuildActionEntry>
@@ -69,19 +69,15 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "generator"
-            BuildableName = "generator"
-            BlueprintName = "generator"
+            BlueprintIdentifier = "swift-graphql-generator"
+            BuildableName = "swift-graphql-generator"
+            BlueprintName = "swift-graphql-generator"
             ReferencedContainer = "container:">
          </BuildableReference>
       </BuildableProductRunnable>
       <CommandLineArguments>
          <CommandLineArgument
             argument = "generate"
-            isEnabled = "YES">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "--schema Schema.graphql"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
@@ -100,9 +96,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "generator"
-            BuildableName = "generator"
-            BlueprintName = "generator"
+            BlueprintIdentifier = "swift-graphql-generator"
+            BuildableName = "swift-graphql-generator"
+            BlueprintName = "swift-graphql-generator"
             ReferencedContainer = "container:">
          </BuildableReference>
       </BuildableProductRunnable>

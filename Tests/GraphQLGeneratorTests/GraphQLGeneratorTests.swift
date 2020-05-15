@@ -1,5 +1,5 @@
 import XCTest
-@testable import GraphQLGenerator
+@testable import SwiftGraphQLGenerator
 
 final class GraphQLGeneratorTests: XCTestCase {
     func testExample() {

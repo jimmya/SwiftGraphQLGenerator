@@ -4,13 +4,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "GraphQLGenerator",
+    name: "SwiftGraphQLGenerator",
     products: [
         // Products define the executables and libraries produced by a package, and make them visible to other packages.
-        .executable(name: "generator", targets: ["generator"]),
+        .executable(name: "swift-graphql-generator", targets: ["generator"]),
         .library(
-            name: "GraphQLGenerator",
-            targets: ["GraphQLGenerator"]),
+            name: "SwiftGraphQLGenerator",
+            targets: ["SwiftGraphQLGenerator"]),
         .library(name: "Validator", targets: ["Validator"])
     ],
     dependencies: [
@@ -26,12 +26,12 @@ let package = Package(
         // Targets can depend on other targets in this package, and on products in packages which this package depends on.
         .target(name: "generator",
                 dependencies: [
-                    "GraphQLGenerator",
+                    "SwiftGraphQLGenerator",
                     .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
         .target(
-            name: "GraphQLGenerator",
+            name: "SwiftGraphQLGenerator",
             dependencies: [
                 .product(name: "GraphQL", package: "GraphQL"),
                 .product(name: "Meta", package: "Meta"),
@@ -41,6 +41,6 @@ let package = Package(
             name: "Validator"),
         .testTarget(
             name: "GraphQLGeneratorTests",
-            dependencies: ["GraphQLGenerator"]),
+            dependencies: ["SwiftGraphQLGenerator"]),
     ]
 )

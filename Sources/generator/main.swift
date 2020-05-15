@@ -1,7 +1,7 @@
 import Foundation
 import GraphQL
 import Meta
-import GraphQLGenerator
+import SwiftGraphQLGenerator
 import ArgumentParser
 
 struct Generator: ParsableCommand {
@@ -20,7 +20,7 @@ struct Generator: ParsableCommand {
         var output: String
 
         func run() throws {
-            try GraphQLGenerator.Generator(schemaPath: schema, inputPath: input, outputPath: output).generate()
+            try SwiftGraphQLGenerator.Generator(schemaPath: schema, inputPath: input, outputPath: output).generate()
         }
     }
     
