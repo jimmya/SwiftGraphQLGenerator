@@ -27,7 +27,8 @@ public struct HumanFragment: Decodable, Equatable {
     public struct Character: Decodable, Equatable {
 
         public let name: String
-        public let asHuman: Optional<Human>
+        public let asHuman1: Optional<Human1>
+        public let asHuman2: Optional<Human2>
 
         public enum CodingKeys: String, CodingKey {
             case __typename
@@ -37,9 +38,18 @@ public struct HumanFragment: Decodable, Equatable {
         public init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
             name = try values.decode(String.self, forKey: CodingKeys.name)
+            let type = try values.decode(String.self, forKey: .__typename)
+            switch type {
+            case "Human":
+                asHuman1 = try? Human1(from: decoder)
+                asHuman2 = try? Human2(from: decoder)
+            default:
+                asHuman1 = nil
+                asHuman2 = nil
+            }
         }
 
-        public struct Human: Decodable, Equatable {
+        public struct Human1: Decodable, Equatable {
 
             public let mass: Optional<Double>
 
@@ -50,6 +60,20 @@ public struct HumanFragment: Decodable, Equatable {
             public init(from decoder: Decoder) throws {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
                 mass = try values.decodeIfPresent(Double.self, forKey: CodingKeys.mass)
+            }
+        }
+
+        public struct Human2: Decodable, Equatable {
+
+            public let homePlanet: Optional<String>
+
+            public enum CodingKeys: String, CodingKey {
+                case homePlanet
+            }
+
+            public init(from decoder: Decoder) throws {
+                let values = try decoder.container(keyedBy: CodingKeys.self)
+                homePlanet = try values.decodeIfPresent(String.self, forKey: CodingKeys.homePlanet)
             }
         }
     }

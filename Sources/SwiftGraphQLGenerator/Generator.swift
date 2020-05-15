@@ -240,7 +240,7 @@ public final class Generator {
         return function
     }
     
-    func generateInit(_ selectionSet: SelectionSet, definition: InterfaceTypeDefinition) throws -> TypeBodyMember {
+    func generateInit(_ selectionSet: SelectionSet, definition: InterfaceTypeDefinition, inlineFragmentDefinitions: [(type: String, fragment: InlineFragment, count: Int?)]) throws -> TypeBodyMember {
         var function = Function(kind: .`init`).with(throws: true).with(accessLevel: .public)
         .adding(parameter:
             FunctionParameter(alias: "from", name: "decoder", type: .named("Decoder"))
@@ -270,17 +270,94 @@ public final class Generator {
                 function = function.adding(member: Assignment(variable: Reference.named(name), value: .try | .named(fragment.name.value) | .call(tuple)))
             }
         }
+        let inlineFragmentTypes = Set(inlineFragmentDefinitions.map { $0.type })
+        if inlineFragmentTypes.count > 0 {
+            function = function.adding(member: Assignment(
+                variable: Variable(name: "type"),
+                value: .try | .dot(.named("values"), .named("decode")) | .call(Tuple().adding(parameter: TupleParameter(value: Value.reference(.dot(.type(.named("String")), .named("self"))))).adding(parameter: TupleParameter(name: "forKey", value: Value.reference(.named(".__typename")))))))
+            var initSwitch = Switch(reference: .named("type"))
+            inlineFragmentTypes.forEach { type in
+                var switchCase = SwitchCase(name: .raw("\"\(type)\""))
+                inlineFragmentDefinitions.forEach { (current) in
+                    let (fragmentType, _, count) = current
+                    let typeName: String
+                    if let count = count {
+                        typeName = fragmentType + "\(count)"
+                    } else {
+                        typeName = fragmentType
+                    }
+                    if fragmentType == type {
+                        let variable = .optionalTry | .named(typeName) | .tuple(Tuple().adding(parameter: TupleParameter(name: "from", value: Value.reference(.named("decoder")))))
+                        let assignment = Assignment(variable: Reference.named("as" + typeName), value: variable)
+                        switchCase = switchCase.adding(member: assignment)
+                    } else {
+                        let assignment = Assignment(variable: Reference.named("as" + typeName), value: Value.nil)
+                        switchCase = switchCase.adding(member: assignment)
+                    }
+                }
+                initSwitch = initSwitch.adding(case: switchCase)
+            }
+            var switchCase = SwitchCase(name: .default)
+            inlineFragmentDefinitions.forEach { (current) in
+                let (fragmentType, _, count) = current
+                let typeName: String
+                if let count = count {
+                    typeName = fragmentType + "\(count)"
+                } else {
+                    typeName = fragmentType
+                }
+                let assignment = Assignment(variable: Reference.named("as" + typeName), value: Value.nil)
+                switchCase = switchCase.adding(member: assignment)
+            }
+            initSwitch = initSwitch.adding(case: switchCase)
+            function = function.adding(member: initSwitch)
+            
+        }
+//        let name = type.name.value.lowercasingFirstLetter()
+//        var switchCase = SwitchCase(name: .custom(name))
+//        let variable = .try | .named(type.name.value) | .tuple(Tuple().adding(parameter: TupleParameter(name: "from", value: Value.reference(.named("decoder")))))
+//        let assignment = Assignment(variable: Reference.named("self"), value: .named(".\(name)") | .call(Tuple().adding(parameter: TupleParameter(name: name, value: variable))))
+//        switchCase = switchCase.adding(member: assignment)
+//        initSwitch = initSwitch.adding(case: switchCase)
+        
+        
         return function
     }
+    
+//    public init(from decoder: Decoder) throws {
+//        let values = try decoder.container(keyedBy: CodingKeys.self)
+//        name = try values.decode(String.self, forKey: CodingKeys.name)
+//        let type = try values.decode(String.self, forKey: CodingKeys.__typename)
+//        switch type {
+//            case "Human":
+//                asHuman1 = try? Human1(from: decoder)
+//                asHuman2 = try? Human2(from: decoder)
+//            default:
+//                asHuman1 = nil
+//                asHuman2 = nil
+//        }
+//    }
 
     func mapInterfaceSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definition: InterfaceTypeDefinition, definitions: [Definition]) throws -> [TypeBodyMember & FileBodyMember] {
         var selectionSetType = Meta.Type(identifier: .init(name: name ?? typeName)).with(kind: .struct).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
         selectionSetType = selectionSetType.adding(member: EmptyLine())
         
+        let inlineFragmentNames = selectionSet.selections.compactMap { ($0 as? InlineFragment)?.typeCondition?.name.value }
+        let inlineFragments = selectionSet.selections.compactMap { $0 as? InlineFragment}
+        let inlineFragmentDefinitions: [(type: String, fragment: InlineFragment, count: Int?)] = inlineFragments.reduce(into: []) { (result, fragment) in
+            guard let type = fragment.typeCondition?.name.value else { return }
+            let count: Int?
+            if let currentCount = result.last(where: { $0.type == type })?.count {
+                count = currentCount + 1
+            } else {
+                count = inlineFragments.contains(fragment) ? 1 : nil
+            }
+            result.append((type, fragment, count))
+        }
+        
         var selectionSets: [(SelectionSet, String)] = []
-        var inlineFragmentSelectionSets: [(SelectionSet, String)] = []
         try selectionSet.selections.forEach { selection in
-            if let field = selection as? Field {
+            guard let field = selection as? Field else { return }
                 guard let definition = definition.fields.first(where: { $0.name.value == field.name.value }) else { return }
                 let name = field.alias?.value ?? field.name.value
                 let type = try mapType(definition.type, name: name)
@@ -292,36 +369,41 @@ public final class Generator {
                 if let selectionSet = field.selectionSet {
                     selectionSets.append((selectionSet, type.1))
                 }
-            } else if let fragment = selection as? FragmentSpread {
-                selectionSetType = selectionSetType.adding(member: Property(variable:
-                    Variable(name: fragment.name.value.lowercasingFirstLetter())
-                        .with(immutable: true)
-                        .with(type: .named(fragment.name.value))
-                ).with(accessLevel: .public))
-            } else if let inlineFragment = selection as? InlineFragment {
-                guard let caseTypeName = inlineFragment.typeCondition?.name.value else { return }
-                inlineFragmentSelectionSets.append((inlineFragment.selectionSet, caseTypeName))
-                selectionSetType = selectionSetType.adding(member: Property(variable:
-                    Variable(name: "as\(caseTypeName)")
-                        .with(immutable: true)
-                        .with(type: .optional(wrapped: .init(name: caseTypeName)))
-                ).with(accessLevel: .public))
+        }
+        inlineFragmentDefinitions.forEach { item in
+            let (type, _, count) = item
+            let typeName: String
+            if let count = count {
+                typeName = type + "\(count)"
+            } else {
+                typeName = type
             }
+            selectionSetType = selectionSetType.adding(member: Property(variable:
+                Variable(name: "as\(typeName)")
+                    .with(immutable: true)
+                    .with(type: .optional(wrapped: .init(name: typeName)))
+            ).with(accessLevel: .public))
         }
         selectionSetType = selectionSetType.adding(member: EmptyLine())
         selectionSetType = selectionSetType.adding(member: generateCodingKeys(selectionSet))
         selectionSetType = selectionSetType.adding(member: EmptyLine())
-        selectionSetType = selectionSetType.adding(member: try generateInit(selectionSet, definition: definition))
+        selectionSetType = selectionSetType.adding(member: try generateInit(selectionSet, definition: definition, inlineFragmentDefinitions: inlineFragmentDefinitions))
         try selectionSets.forEach { set in
             let (selectionSet, name) = set
             selectionSetType = selectionSetType.adding(member: EmptyLine())
             selectionSetType = selectionSetType.adding(members: try mapSelectionSet(selectionSet, typeName: name, definitions: definitions))
         }
         
-        try inlineFragmentSelectionSets.forEach { item in
-            let (selectionSet, name) = item
+        try inlineFragmentDefinitions.forEach { item in
+            let (type, fragment, count) = item
+            let typeName: String
+            if let count = count {
+                typeName = type + "\(count)"
+            } else {
+                typeName = type
+            }
             selectionSetType = selectionSetType.adding(member: EmptyLine())
-            selectionSetType = selectionSetType.adding(members: try mapSelectionSet(selectionSet, typeName: name, definitions: definitions))
+            selectionSetType = selectionSetType.adding(members: try mapSelectionSet(fragment.selectionSet, typeName: type, name: typeName, definitions: definitions))
         }
         
         return [selectionSetType]

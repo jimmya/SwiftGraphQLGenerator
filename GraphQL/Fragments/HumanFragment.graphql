@@ -6,6 +6,9 @@ fragment HumanFragment on Human {
     ... on Human {
       mass
     }
+    ... on Human {
+      homePlanet
+    }
   }
   appearsIn
 }
