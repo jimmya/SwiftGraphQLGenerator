@@ -313,30 +313,8 @@ public final class Generator {
             function = function.adding(member: initSwitch)
             
         }
-//        let name = type.name.value.lowercasingFirstLetter()
-//        var switchCase = SwitchCase(name: .custom(name))
-//        let variable = .try | .named(type.name.value) | .tuple(Tuple().adding(parameter: TupleParameter(name: "from", value: Value.reference(.named("decoder")))))
-//        let assignment = Assignment(variable: Reference.named("self"), value: .named(".\(name)") | .call(Tuple().adding(parameter: TupleParameter(name: name, value: variable))))
-//        switchCase = switchCase.adding(member: assignment)
-//        initSwitch = initSwitch.adding(case: switchCase)
-        
-        
         return function
     }
-    
-//    public init(from decoder: Decoder) throws {
-//        let values = try decoder.container(keyedBy: CodingKeys.self)
-//        name = try values.decode(String.self, forKey: CodingKeys.name)
-//        let type = try values.decode(String.self, forKey: CodingKeys.__typename)
-//        switch type {
-//            case "Human":
-//                asHuman1 = try? Human1(from: decoder)
-//                asHuman2 = try? Human2(from: decoder)
-//            default:
-//                asHuman1 = nil
-//                asHuman2 = nil
-//        }
-//    }
 
     func mapInterfaceSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definition: InterfaceTypeDefinition, definitions: [Definition]) throws -> [TypeBodyMember & FileBodyMember] {
         var selectionSetType = Meta.Type(identifier: .init(name: name ?? typeName)).with(kind: .struct).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
