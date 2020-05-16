@@ -2,6 +2,7 @@ import GraphQL
 
 public extension GraphQL.`Type` {
     
+    /// Unwrap Type until there is no more nesting. Last type should be a named type.
     func toArray() -> [GraphQL.`Type`] {
         var types: [GraphQL.`Type`?] = []
         var currentType: GraphQL.`Type`? = self
