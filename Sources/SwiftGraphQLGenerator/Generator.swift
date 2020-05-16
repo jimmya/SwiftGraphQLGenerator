@@ -79,7 +79,7 @@ public final class Generator {
                     try members.append(mapOperation(operation, schema: schema))
                 case let fragment as FragmentDefinition:
                     // TODO add graphQL fragment definition to generated struct and append this to generated operations using this fragment. See commented section in operation to fetch definition
-                    try members.append(contentsOf: mapFragment(fragment, schema: schema))
+                    try members.append(mapFragment(fragment, schema: schema))
                 default: fatalError("Unsupported definition")
             }
             members.append(EmptyLine())
@@ -178,9 +178,9 @@ public final class Generator {
                     data = data.adding(member: EmptyLine())
                     data = data.adding(member: property.0)
                     if let selectionSet = field.selectionSet {
-                        let test = try mapSelectionSet(selectionSet, typeName: property.1, definitions: schema.definitions)
+                        let item = try mapSelectionSet(selectionSet, typeName: property.1, definitions: schema.definitions)
                         data = data.adding(member: EmptyLine())
-                        data = data.adding(members: test)
+                        data = data.adding(member: item)
                 }
                 case let fragment as FragmentSpread:
                     print("TODO")
@@ -316,7 +316,7 @@ public final class Generator {
         return function
     }
 
-    func mapInterfaceSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definition: InterfaceTypeDefinition, definitions: [Definition]) throws -> [TypeBodyMember & FileBodyMember] {
+    func mapInterfaceSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definition: InterfaceTypeDefinition, definitions: [Definition]) throws -> TypeBodyMember & FileBodyMember {
         var selectionSetType = Meta.Type(identifier: .init(name: name ?? typeName)).with(kind: .struct).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
         selectionSetType = selectionSetType.adding(member: EmptyLine())
         
@@ -385,7 +385,7 @@ public final class Generator {
             selectionSetType = selectionSetType.adding(members: try mapSelectionSet(fragment.selectionSet, typeName: type, name: typeName, definitions: definitions))
         }
         
-        return [selectionSetType]
+        return selectionSetType
     }
     
     func mapObjectSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definition: ObjectTypeDefinition, definitions: [Definition]) throws -> TypeBodyMember & FileBodyMember {
@@ -483,8 +483,8 @@ public final class Generator {
             enumType = enumType.adding(member: EmptyLine())
             let inlineFragments = selectionSet.selections.compactMap { $0 as? InlineFragment }
             if let selection = inlineFragments.first(where: { $0.typeCondition?.name.value == type.name.value }) {
-                let items = try mapSelectionSet(selection.selectionSet, typeName: type.name.value, definitions: definitions)
-                enumType = enumType.adding(members: items)
+                let item = try mapSelectionSet(selection.selectionSet, typeName: type.name.value, definitions: definitions)
+                enumType = enumType.adding(member: item)
             } else {
                 let item = Meta.Type(identifier: .init(name: type.name.value)).with(kind: .struct).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
                 enumType = enumType.adding(member: item)
@@ -493,18 +493,18 @@ public final class Generator {
         return enumType
     }
 
-    func mapSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definitions: [Definition]) throws -> [TypeBodyMember & FileBodyMember] {
+    func mapSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definitions: [Definition]) throws -> TypeBodyMember & FileBodyMember {
         if let definition = unionDefinitions[typeName] {
-            return try [mapUnionSelectionSet(selectionSet, typeName: typeName, name: name, definition: definition, definitions: definitions)]
+            return try mapUnionSelectionSet(selectionSet, typeName: typeName, name: name, definition: definition, definitions: definitions)
         } else if let definition = objectDefinitions[typeName] {
-            return try [mapObjectSelectionSet(selectionSet, typeName: typeName, name: name, definition: definition, definitions: definitions)]
+            return try mapObjectSelectionSet(selectionSet, typeName: typeName, name: name, definition: definition, definitions: definitions)
         } else if let definition = interfaceDefinitions[typeName] {
             return try mapInterfaceSelectionSet(selectionSet, typeName: typeName, name: name, definition: definition, definitions: definitions)
         }
         throw GraphQLGeneratorError.unexpectedType
     }
 
-    func mapFragment(_ fragment: FragmentDefinition, schema: Document) throws -> [FileBodyMember & TypeBodyMember] {
+    func mapFragment(_ fragment: FragmentDefinition, schema: Document) throws -> FileBodyMember & TypeBodyMember {
         print("Generating fragment `\(fragment.name.value)`".yellow)
         return try mapSelectionSet(fragment.selectionSet, typeName: fragment.typeCondition.name.value, name: fragment.name.value, definitions: schema.definitions)
     }
