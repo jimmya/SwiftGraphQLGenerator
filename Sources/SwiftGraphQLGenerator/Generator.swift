@@ -87,7 +87,8 @@ public final class Generator {
         usedEnumTypes.forEach { enumType in
             guard let match = enumDefinitions[enumType] else { return }
             var enumNode = Meta.Type(identifier: .named(enumType)).with(kind: .enum(indirect: false)).adding(inheritedType: .string).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
-            match.values.forEach { value in
+            let sortedCases = match.values.sorted(by: { $0.name.value < $1.name.value })
+            sortedCases.forEach { value in
                 enumNode = enumNode.adding(member: Case(name: value.name.value))
             }
             members.append(enumNode)
@@ -283,7 +284,7 @@ public final class Generator {
                 function = function.adding(member: Assignment(variable: Reference.named(name), value: .try | .named(fragment.name.value) | .call(tuple)))
             }
         }
-        let inlineFragmentTypes = Set(inlineFragmentDefinitions.map { $0.type })
+        let inlineFragmentTypes = Set(inlineFragmentDefinitions.map { $0.type }).sorted(by: { $0 < $1 })
         if inlineFragmentTypes.count > 0 {
             function = function.adding(member: Assignment(
                 variable: Variable(name: "type"),
@@ -344,7 +345,7 @@ public final class Generator {
                 count = typeCount > 1 ? 1 : nil
             }
             result.append((type, fragment, count))
-        }
+        }.sorted(by: { $0.0 < $1.0 })
         
         var selectionSets: [(SelectionSet, String)] = []
         try selectionSet.selections.forEach { selection in
@@ -444,9 +445,10 @@ public final class Generator {
         guard selectionSet.selections.contains(where: { ($0 as? Field)?.name.value == "__typename" }) else {
             throw GraphQLGeneratorError.unionWithoutTypename
         }
+        let sortedTypes = definition.types.sorted(by: { $0.name.value < $1.name.value })
         var enumType = Meta.Type(identifier: .named(typeName)).with(kind: .enum(indirect: false)).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
         enumType = enumType.adding(member: EmptyLine())
-        definition.types.forEach { type in
+        sortedTypes.forEach { type in
             let name = type.name.value.lowercasingFirstLetter()
             let enumCase = Case(name: name).adding(parameter: CaseParameter(name: name, type: .named(type.name.value)))
             enumType = enumType.adding(member: enumCase)
@@ -454,7 +456,7 @@ public final class Generator {
         
         enumType = enumType.adding(member: EmptyLine())
         var typeEnum = Meta.Type(identifier: .named("ItemType")).with(kind: .enum(indirect: false)).adding(inheritedType: .string).adding(inheritedType: .decodable)
-        definition.types.forEach { type in
+        sortedTypes.forEach { type in
             typeEnum = typeEnum.adding(member: Case(name: type.name.value.lowercasingFirstLetter()).with(value: .string(type.name.value)))
         }
         enumType = enumType.adding(member: typeEnum)
@@ -478,7 +480,7 @@ public final class Generator {
         value: .try | .dot(.named("typeValues"), .named("decode")) | .call(Tuple().adding(parameter: TupleParameter(value: Value.reference(.dot(.type(.named("ItemType")), .named("self"))))).adding(parameter: TupleParameter(name: "forKey", value: Value.reference(.named(".typeName")))))))
         
         var initSwitch = Switch(reference: .named("type"))
-        definition.types.forEach { type in
+        sortedTypes.forEach { type in
             let name = type.name.value.lowercasingFirstLetter()
             var switchCase = SwitchCase(name: .custom(name))
             let variable = .try | .named(type.name.value) | .tuple(Tuple().adding(parameter: TupleParameter(name: "from", value: Value.reference(.named("decoder")))))
@@ -491,7 +493,7 @@ public final class Generator {
         
         enumType = enumType.adding(member: initFunction)
         
-        try definition.types.forEach { type in
+        try sortedTypes.forEach { type in
             enumType = enumType.adding(member: EmptyLine())
             let inlineFragments = selectionSet.selections.compactMap { $0 as? InlineFragment }
             if let selection = inlineFragments.first(where: { $0.typeCondition?.name.value == type.name.value }) {
