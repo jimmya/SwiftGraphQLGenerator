@@ -11,7 +11,7 @@ let package = Package(
         .library(
             name: "SwiftGraphQLGenerator",
             targets: ["SwiftGraphQLGenerator"]),
-        .library(name: "Validator", targets: ["Validator"])
+        .executable(name: "Validator", targets: ["Validator"])
     ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.

@@ -100,9 +100,27 @@ public struct HumanFragment: Decodable, Equatable {
     }
 }
 
-public struct CreateReview: Codable, Equatable {
+public struct CreateReview: Encodable, Equatable {
 
-    public let stars: Int
+    static let definition = """
+    mutation CreateReview($stars: Int!) {
+      createReview(episode: NEWHOPE, review: { stars: $stars }) {
+        stars
+      }
+    }
+    """
+    public let query = Self.definition
+    public let operationName = "CreateReview"
+    public let variables: Variables
+
+    public init(variables: Variables) { self.variables = variables }
+
+    public struct Variables: Encodable, Equatable {
+
+        public let stars: Int
+
+        public init(stars: Int) { self.stars = stars }
+    }
 
     public struct Data: Decodable, Equatable {
 
@@ -124,7 +142,33 @@ public struct CreateReview: Codable, Equatable {
     }
 }
 
-public struct Search: Codable, Equatable {
+public struct Search: Encodable, Equatable {
+
+    static let definition = """
+    query Search($query: String!) {
+      search(text: $query) {
+        __typename
+        ... on Human {
+          name
+        }
+        ... on Droid {
+          name
+        }
+      }
+    }
+    """
+    public let query = Self.definition + CreateReview.definition
+    public let operationName = "Search"
+    public let variables: Variables
+
+    public init(variables: Variables) { self.variables = variables }
+
+    public struct Variables: Encodable, Equatable {
+
+        public let query: String
+
+        public init(query: String) { self.query = query }
+    }
 
     public struct Data: Decodable, Equatable {
 
@@ -175,13 +219,16 @@ public struct Search: Codable, Equatable {
 
             public struct Human: Decodable, Equatable {
 
-                public let humanFragment: HumanFragment
+                public let name: String
 
                 public enum CodingKeys: String, CodingKey {
-                    case humanFragment
+                    case name
                 }
 
-                public init(from decoder: Decoder) throws { humanFragment = try HumanFragment(from: decoder) }
+                public init(from decoder: Decoder) throws {
+                    let values = try decoder.container(keyedBy: CodingKeys.self)
+                    name = try values.decode(String.self, forKey: CodingKeys.name)
+                }
             }
 
             public struct Starship: Decodable, Equatable {

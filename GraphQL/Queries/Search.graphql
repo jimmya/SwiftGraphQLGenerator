@@ -1,8 +1,8 @@
-query Search {
-  search(text: "") {
+query Search($query: String!) {
+  search(text: $query) {
     __typename
     ... on Human {
-      ... HumanFragment
+      name
     }
     ... on Droid {
       name

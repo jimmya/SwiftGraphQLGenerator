@@ -70,13 +70,12 @@ public final class Generator {
         for (index, definition) in document.definitions.enumerated() {
             switch definition {
                 case let operation as OperationDefinition:
-//                    let start = operation.loc?.start ?? 0
-//                    let end = document.definitions[safe: index + 1]?.loc?.start ?? combinedObjects.count
-//                    let startIndex = combinedObjects.index(combinedObjects.startIndex, offsetBy: start)
-//                    let index = combinedObjects.index(startIndex, offsetBy: end - start)
-//                    let definition = combinedObjects[startIndex..<index].trimmingCharacters(in: .newlines)
-                    // TODO add graphQL definition to generated struct to be used in request
-                    try members.append(mapOperation(operation, schema: schema))
+                    let start = operation.loc?.start ?? 0
+                    let end = document.definitions[safe: index + 1]?.loc?.start ?? combinedObjects.count
+                    let startIndex = combinedObjects.index(combinedObjects.startIndex, offsetBy: start)
+                    let index = combinedObjects.index(startIndex, offsetBy: end - start)
+                    let definition = combinedObjects[startIndex..<index].trimmingCharacters(in: .newlines)
+                    try members.append(mapOperation(operation, schema: schema, definition: definition))
                 case let fragment as FragmentDefinition:
                     // TODO add graphQL fragment definition to generated struct and append this to generated operations using this fragment. See commented section in operation to fetch definition
                     try members.append(mapFragment(fragment, schema: schema))
@@ -160,19 +159,47 @@ public final class Generator {
                 .with(type: type)
         ).with(accessLevel: .public), typeName)
     }
+    
+    func addVariableDefinitions(_ variables: [VariableDefinition], to: inout Meta.`Type`) throws {
+        guard !variables.isEmpty else { return }
+        to = to.adding(member: Property(variable: Variable(name: "variables").with(type: TypeIdentifier(name: "Variables"))).with(accessLevel: .public))
+        to = to.adding(member: EmptyLine())
+        
+        var initFunction = Function(kind: .`init`).with(accessLevel: .public)
+        initFunction = initFunction.adding(parameter: FunctionParameter(name: "variables", type: TypeIdentifier(name: "Variables")))
+        initFunction = initFunction.adding(member: Assignment(variable: Reference.dot(.named("self"), .named("variables")), value: Reference.named("variables")))
+        to = to.adding(member: initFunction)
+        
+        to = to.adding(member: EmptyLine())
+        
+        var variablesStruct = Meta.Type(identifier: .init(name: "Variables")).with(kind: .struct).adding(inheritedTypes: [.encodable, .equatable]).with(accessLevel: .public)
+        variablesStruct = variablesStruct.adding(member: EmptyLine())
+        var variablesInit = Function(kind: .`init`).with(accessLevel: .public)
+        try variables.forEach { variable in
+            variablesStruct = variablesStruct.adding(member: try mapType(variable.type, name: variable.variable.name.value).0)
+            let typeName = try mapType(variable.type, name: variable.variable.name.value).1
+            variablesInit = variablesInit.adding(parameter: FunctionParameter(name: variable.variable.name.value, type: TypeIdentifier(name: typeName)))
+            variablesInit = variablesInit.adding(member: Assignment(variable: Reference.dot(.named("self"), .named(variable.variable.name.value)), value: Reference.named(variable.variable.name.value)))
+        }
+        variablesStruct = variablesStruct.adding(member: EmptyLine())
+        variablesStruct = variablesStruct.adding(member: variablesInit)
+        to = to.adding(member: variablesStruct)
+    }
 
-    func mapOperation(_ operation: OperationDefinition, schema: Document) throws -> FileBodyMember {
+    func mapOperation(_ operation: OperationDefinition, schema: Document, definition: String) throws -> FileBodyMember {
         guard let name = operation.name?.value else {
             throw GraphQLGeneratorError.noQueryName
         }
         print("Generating operation `\(name)` of type `\(operation.operation)`".yellow)
-        var member = Meta.Type(identifier: .init(name: name)).with(kind: .struct).adding(inheritedTypes: [.codable, .equatable]).with(accessLevel: .public)
-        if !operation.variableDefinitions.isEmpty {
-            member = member.adding(member: EmptyLine())
-        }
-        try operation.variableDefinitions.forEach { variable in
-            member = member.adding(member: try mapType(variable.type, name: variable.variable.name.value).0)
-        }
+        var member = Meta.Type(identifier: .init(name: name)).with(kind: .struct).adding(inheritedTypes: [.encodable, .equatable]).with(accessLevel: .public)
+        member = member.adding(member: EmptyLine())
+        let rawString = PlainCode(code: "\"\"\"\n\(definition)\n\"\"\"")
+        let definitionProperty = Property(variable: Variable(name: "definition").with(static: true)).with(value: rawString)
+        member = member.adding(member: definitionProperty)
+        member = member.adding(member: Property(variable: Variable(name: "query")).with(accessLevel: .public).with(value: Value.reference(.dot(.named("Self"), .named("definition")))))
+        member = member.adding(member: Property(variable: Variable(name: "operationName")).with(accessLevel: .public).with(value: Value.string(name)))
+        try addVariableDefinitions(operation.variableDefinitions, to: &member)
+        
         member = member.adding(member: EmptyLine())
         var data = Meta.Type(identifier: .init(name: "Data")).with(kind: .struct).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
         try operation.selectionSet.selections.forEach { selection in
