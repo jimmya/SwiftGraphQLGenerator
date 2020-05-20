@@ -67,6 +67,7 @@ public final class Generator {
             }
         }
         
+        let fragmentDefinitions = document.definitions.compactMap { $0 as? FragmentDefinition }
         for (index, definition) in document.definitions.enumerated() {
             let start = definition.loc?.start ?? 0
             let end = document.definitions[safe: index + 1]?.loc?.start ?? combinedObjects.count
@@ -75,7 +76,7 @@ public final class Generator {
             let definitionString = combinedObjects[startIndex..<index].trimmingCharacters(in: .newlines)
             switch definition {
                 case let operation as OperationDefinition:
-                    try members.append(mapOperation(operation, schema: schema, definition: definitionString))
+                    try members.append(mapOperation(operation, schema: schema, fragments: fragmentDefinitions, definition: definitionString))
                 case let fragment as FragmentDefinition:
                     try members.append(mapFragment(fragment, schema: schema, definition: definitionString))
                 default: fatalError("Unsupported definition")
@@ -185,49 +186,57 @@ public final class Generator {
         to = to.adding(member: variablesStruct)
     }
 
-    func mapOperation(_ operation: OperationDefinition, schema: Document, definition: String) throws -> FileBodyMember {
+    func mapOperation(_ operation: OperationDefinition, schema: Document, fragments: [FragmentDefinition], definition: String) throws -> FileBodyMember {
         guard let name = operation.name?.value else {
             throw GraphQLGeneratorError.noQueryName
         }
         print("Generating operation `\(name)` of type `\(operation.operation)`".yellow)
         
-        var fragments: [String] = []
+        var fragmentStrings: [String] = []
         var data = Meta.Type(identifier: .init(name: "Data")).with(kind: .struct).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
         try operation.selectionSet.selections.forEach { selection in
-            switch selection {
-                case let field as Field:
-                    let propertyName = field.alias?.value ?? field.name.value
-                    let type: FieldDefinition?
-                    switch operation.operation {
-                        case .query:
-                            type = objectDefinitions["Query"]?.fields.first(where: { $0.name.value == field.name.value })
-                        case .mutation:
-                            type = objectDefinitions["Mutation"]?.fields.first(where: { $0.name.value == field.name.value })
-                        case .subscription: fatalError("Not supported")
-                    }
-                    guard let queriedType = type else { throw GraphQLGeneratorError.unexpectedType }
-                    let property = try mapType(queriedType.type, name: propertyName)
-                    data = data.adding(member: EmptyLine())
-                    data = data.adding(member: property.0)
-                    if let selectionSet = field.selectionSet {
-                        let (member, usedFragments) = try mapSelectionSet(selectionSet, typeName: property.1, definitions: schema.definitions)
-                        data = data.adding(member: EmptyLine())
-                        data = data.adding(member: member)
-                        fragments.append(contentsOf: usedFragments)
-                }
-                case let fragment as FragmentSpread:
-                    print("TODO")
-                case let inlineFragment as InlineFragment:
-                    print("TODO")
-                default: throw GraphQLGeneratorError.invalidSelectionType
+            guard let field = selection as? Field else {
+                throw GraphQLGeneratorError.invalidSelectionType
             }
+            let propertyName = field.alias?.value ?? field.name.value
+            let type: FieldDefinition?
+            switch operation.operation {
+                case .query:
+                    type = objectDefinitions["Query"]?.fields.first(where: { $0.name.value == field.name.value })
+                case .mutation:
+                    type = objectDefinitions["Mutation"]?.fields.first(where: { $0.name.value == field.name.value })
+                case .subscription: fatalError("Not supported")
+            }
+            guard let queriedType = type else { throw GraphQLGeneratorError.unexpectedType }
+            
+            let (member, name) = try mapType(queriedType.type, name: propertyName)
+            data = data.adding(member: EmptyLine())
+            data = data.adding(member: member)
+            
+            guard let selectionSet = field.selectionSet else { return }
+            let selectionMember = try mapSelectionSet(selectionSet, typeName: name, definitions: schema.definitions)
+            data = data.adding(member: EmptyLine())
+            data = data.adding(member: selectionMember)
+            
+            var usedFragments = try findUsedFragments(in: selectionSet, type: name, definitions: schema.definitions)
+            fragmentStrings.append(contentsOf: usedFragments)
+            repeat {
+                let usedFragmentDefinitions = fragments.filter { usedFragments.contains($0.name.value) }
+                var usedNestedFragments: [String] = []
+                try usedFragmentDefinitions.forEach { fragment in
+                    let nestedFragments = try findUsedFragments(in: fragment.selectionSet, type: fragment.typeCondition.name.value, definitions: schema.definitions)
+                    usedNestedFragments.append(contentsOf: nestedFragments)
+                }
+                usedFragments = usedNestedFragments
+                fragmentStrings.append(contentsOf: usedFragments)
+            } while !usedFragments.isEmpty
         }
         
         var member = Meta.Type(identifier: .init(name: name)).with(kind: .struct).adding(inheritedTypes: [.encodable, .equatable]).with(accessLevel: .public)
         member = member.adding(member: EmptyLine())
         
         var variable: VariableValue = PlainCode(code: "\n\"\"\"\n\(definition)\n\"\"\"")
-        fragments.forEach { fragment in
+        Set(fragmentStrings).sorted().forEach { fragment in
             variable = LogicalStatement.assemble(.value(variable), .plus, .value(Value.reference(.dot(.named(fragment), .named("definition")))))
         }
         let definitionProperty = Property(variable: Variable(name: "definition").with(static: true)).with(value: variable)
@@ -366,7 +375,7 @@ public final class Generator {
         return function
     }
 
-    func mapInterfaceSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definition: InterfaceTypeDefinition, definitions: [Definition]) throws -> (TypeBodyMember & FileBodyMember, [String]) {
+    func mapInterfaceSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definition: InterfaceTypeDefinition, definitions: [Definition]) throws -> TypeBodyMember & FileBodyMember {
         var selectionSetType = Meta.Type(identifier: .init(name: name ?? typeName)).with(kind: .struct).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
         selectionSetType = selectionSetType.adding(member: EmptyLine())
         
@@ -383,7 +392,6 @@ public final class Generator {
             result.append((type, fragment, count))
         }.sorted(by: { $0.0 < $1.0 })
         
-        var fragments: [String] = []
         var selectionSets: [(SelectionSet, String)] = []
         try selectionSet.selections.forEach { selection in
             guard let field = selection as? Field else { return }
@@ -419,10 +427,9 @@ public final class Generator {
         selectionSetType = selectionSetType.adding(member: try generateInit(selectionSet, definition: definition, inlineFragmentDefinitions: inlineFragmentDefinitions))
         try selectionSets.forEach { set in
             let (selectionSet, name) = set
-            let (member, usedFragments) = try mapSelectionSet(selectionSet, typeName: name, definitions: definitions)
+            let member = try mapSelectionSet(selectionSet, typeName: name, definitions: definitions)
             selectionSetType = selectionSetType.adding(member: EmptyLine())
             selectionSetType = selectionSetType.adding(member: member)
-            fragments.append(contentsOf: usedFragments)
         }
         
         try inlineFragmentDefinitions.forEach { item in
@@ -433,21 +440,19 @@ public final class Generator {
             } else {
                 typeName = type
             }
-            let (member, usedFragments) = try mapSelectionSet(fragment.selectionSet, typeName: type, name: typeName, definitions: definitions)
+            let member = try mapSelectionSet(fragment.selectionSet, typeName: type, name: typeName, definitions: definitions)
             selectionSetType = selectionSetType.adding(member: EmptyLine())
             selectionSetType = selectionSetType.adding(member: member)
-            fragments.append(contentsOf: usedFragments)
         }
         
-        return (selectionSetType, fragments)
+        return selectionSetType
     }
     
-    func mapObjectSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, addSchemaDefinition: Bool = false, definitionString: String? = nil, definition: ObjectTypeDefinition, definitions: [Definition]) throws -> (TypeBodyMember & FileBodyMember, [String]) {
+    func mapObjectSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, addSchemaDefinition: Bool = false, definitionString: String? = nil, definition: ObjectTypeDefinition, definitions: [Definition]) throws -> TypeBodyMember & FileBodyMember {
         var selectionSetType = Meta.Type(identifier: .init(name: name ?? typeName)).with(kind: .struct).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
         selectionSetType = selectionSetType.adding(member: EmptyLine())
         
         var selectionSets: [(SelectionSet, String)] = []
-        var fragments: [String] = []
         
         var properties: [TypeBodyMember] = []
         try selectionSet.selections.forEach { selection in
@@ -464,7 +469,6 @@ public final class Generator {
                     selectionSets.append((selectionSet, type.1))
                 }
             } else if let fragment = selection as? FragmentSpread {
-                fragments.append(fragment.name.value)
                 let property = Property(variable:
                     Variable(name: fragment.name.value.lowercasingFirstLetter())
                         .with(immutable: true)
@@ -477,18 +481,13 @@ public final class Generator {
         var members: [FileBodyMember & TypeBodyMember] = []
         try selectionSets.forEach { set in
             let (selectionSet, name) = set
-            let (member, usedFragments) = try mapSelectionSet(selectionSet, typeName: name, definitions: definitions)
+            let member = try mapSelectionSet(selectionSet, typeName: name, definitions: definitions)
             members.append(EmptyLine())
             members.append(member)
-            fragments.append(contentsOf: usedFragments)
         }
         
         if addSchemaDefinition, let definitionString = definitionString {
-            let filteredFragments = fragments.filter { $0 != name }
-            var variable: VariableValue = PlainCode(code: "\n\"\"\"\n\(definitionString)\n\"\"\"")
-            filteredFragments.forEach { fragment in
-                variable = LogicalStatement.assemble(.value(variable), .plus, .value(Value.reference(.dot(.named(fragment), .named("definition")))))
-            }
+            let variable = PlainCode(code: "\n\"\"\"\n\(definitionString)\n\"\"\"")
             let definitionProperty = Property(variable: Variable(name: "definition").with(static: true)).with(value: variable)
             selectionSetType = selectionSetType.adding(member: definitionProperty)
             selectionSetType = selectionSetType.adding(member: EmptyLine())
@@ -501,10 +500,10 @@ public final class Generator {
         selectionSetType = selectionSetType.adding(member: try generateInit(selectionSet, definition: definition))
         selectionSetType = selectionSetType.adding(members: members)
         
-        return (selectionSetType, fragments)
+        return selectionSetType
     }
 
-    func mapUnionSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definition: UnionTypeDefinition, definitions: [Definition]) throws -> (TypeBodyMember & FileBodyMember, [String]) {
+    func mapUnionSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, definition: UnionTypeDefinition, definitions: [Definition]) throws -> TypeBodyMember & FileBodyMember {
         guard selectionSet.selections.contains(where: { ($0 as? Field)?.name.value == "__typename" }) else {
             throw GraphQLGeneratorError.unionWithoutTypename
         }
@@ -556,23 +555,21 @@ public final class Generator {
         
         enumType = enumType.adding(member: initFunction)
         
-        var fragments: [String] = []
         try sortedTypes.forEach { type in
             enumType = enumType.adding(member: EmptyLine())
             let inlineFragments = selectionSet.selections.compactMap { $0 as? InlineFragment }
             if let selection = inlineFragments.first(where: { $0.typeCondition?.name.value == type.name.value }) {
-                let (member, usedFragments) = try mapSelectionSet(selection.selectionSet, typeName: type.name.value, definitions: definitions)
+                let member = try mapSelectionSet(selection.selectionSet, typeName: type.name.value, definitions: definitions)
                 enumType = enumType.adding(member: member)
-                fragments.append(contentsOf: usedFragments)
             } else {
                 let item = Meta.Type(identifier: .init(name: type.name.value)).with(kind: .struct).adding(inheritedTypes: [.decodable, .equatable]).with(accessLevel: .public)
                 enumType = enumType.adding(member: item)
             }
         }
-        return (enumType, fragments)
+        return enumType
     }
 
-    func mapSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, addSchemaDefinition: Bool = false, definitionString: String? = nil, definitions: [Definition]) throws -> (TypeBodyMember & FileBodyMember, [String]) {
+    func mapSelectionSet(_ selectionSet: SelectionSet, typeName: String, name: String? = nil, addSchemaDefinition: Bool = false, definitionString: String? = nil, definitions: [Definition]) throws -> TypeBodyMember & FileBodyMember {
         if let definition = unionDefinitions[typeName] {
             return try mapUnionSelectionSet(selectionSet, typeName: typeName, name: name, definition: definition, definitions: definitions)
         } else if let definition = objectDefinitions[typeName] {
@@ -582,11 +579,60 @@ public final class Generator {
         }
         throw GraphQLGeneratorError.unexpectedType
     }
+    
+    func findUsedFragments(in selectionSet: SelectionSet, type: String, definitions: [Definition]) throws -> [String] {
+        var fragments: [String] = []
+        if let definition = unionDefinitions[type] {
+            let inlineFragments = selectionSet.selections.compactMap { $0 as? InlineFragment }
+            try definition.types.forEach { type in
+                guard let selection = inlineFragments.first(where: { $0.typeCondition?.name.value == type.name.value }) else { return }
+                let usedFragments = try findUsedFragments(in: selection.selectionSet, type: type.name.value, definitions: definitions)
+                fragments.append(contentsOf: usedFragments)
+            }
+            return fragments
+        } else if let definition = objectDefinitions[type] {
+            try selectionSet.selections.forEach { selection in
+                if let field = selection as? Field {
+                    guard let selectionSet = field.selectionSet else { return }
+                    guard let definition = definition.fields.first(where: { $0.name.value == field.name.value }) else { return }
+                    let (_, type, _) = try resolveType(definition.type)
+                    let usedFragments = try findUsedFragments(in: selectionSet, type: type, definitions: definitions)
+                    fragments.append(contentsOf: usedFragments)
+                } else if let fragment = selection as? FragmentSpread {
+                    fragments.append(fragment.name.value)
+                }
+            }
+            return fragments
+        } else if let definition = interfaceDefinitions[type] {
+            let inlineFragments = selectionSet.selections.compactMap { $0 as? InlineFragment}
+            let inlineFragmentDefinitions: [(type: String, fragment: InlineFragment)] = inlineFragments.reduce(into: []) { (result, fragment) in
+                guard let type = fragment.typeCondition?.name.value else { return }
+                result.append((type, fragment))
+            }.sorted(by: { $0.0 < $1.0 })
+            try inlineFragmentDefinitions.forEach { inlineFragment in
+                let (type, fragment) = inlineFragment
+                let usedFragments = try findUsedFragments(in: fragment.selectionSet, type: type, definitions: definitions)
+                fragments.append(contentsOf: usedFragments)
+            }
+            try selectionSet.selections.forEach { selection in
+                if let field = selection as? Field {
+                    guard let selectionSet = field.selectionSet else { return }
+                    guard let definition = definition.fields.first(where: { $0.name.value == field.name.value }) else { return }
+                    let (_, type, _) = try resolveType(definition.type)
+                    let usedFragments = try findUsedFragments(in: selectionSet, type: type, definitions: definitions)
+                    fragments.append(contentsOf: usedFragments)
+                } else if let fragment = selection as? FragmentSpread {
+                    fragments.append(fragment.name.value)
+                }
+            }
+            return fragments
+        }
+        throw GraphQLGeneratorError.unexpectedType
+    }
 
     func mapFragment(_ fragment: FragmentDefinition, schema: Document, definition: String) throws -> FileBodyMember & TypeBodyMember {
         print("Generating fragment `\(fragment.name.value)`".yellow)
-        let (member, _) = try mapSelectionSet(fragment.selectionSet, typeName: fragment.typeCondition.name.value, name: fragment.name.value, addSchemaDefinition: true, definitionString: definition, definitions: schema.definitions)
-        return member
+        return try mapSelectionSet(fragment.selectionSet, typeName: fragment.typeCondition.name.value, name: fragment.name.value, addSchemaDefinition: true, definitionString: definition, definitions: schema.definitions)
     }
 }
 

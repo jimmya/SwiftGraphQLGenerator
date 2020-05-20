@@ -7,15 +7,34 @@ fragment HumanFragment on Human {
       mass
     }
     ... on Human {
-        name
+      ...HumanFragment2
     }
     ... on Droid {
-      primaryFunction
+      ...DroidFragment
     }
   }
   appearsIn
 }
 
+fragment HumanFragment2 on Human {
+  name
+  friends {
+    __typename
+    name
+    ... on Human {
+      ...HumanFragment3
+    }
+  }
+}
+
+fragment HumanFragment3 on Human {
+  name
+}
+
 fragment DroidFragment on Droid {
-    primaryFunction
+  primaryFunction
+}
+
+fragment StarshipFragment on Starship {
+  length
 }

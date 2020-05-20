@@ -18,10 +18,10 @@ public struct HumanFragment: Decodable, Equatable {
           mass
         }
         ... on Human {
-            name
+          ...HumanFragment2
         }
         ... on Droid {
-          primaryFunction
+          ...DroidFragment
         }
       }
       appearsIn
@@ -79,16 +79,13 @@ public struct HumanFragment: Decodable, Equatable {
 
         public struct Droid: Decodable, Equatable {
 
-            public let primaryFunction: Optional<String>
+            public let droidFragment: DroidFragment
 
             public enum CodingKeys: String, CodingKey {
-                case primaryFunction
+                case droidFragment
             }
 
-            public init(from decoder: Decoder) throws {
-                let values = try decoder.container(keyedBy: CodingKeys.self)
-                primaryFunction = try values.decodeIfPresent(String.self, forKey: CodingKeys.primaryFunction)
-            }
+            public init(from decoder: Decoder) throws { droidFragment = try DroidFragment(from: decoder) }
         }
 
         public struct Human1: Decodable, Equatable {
@@ -107,17 +104,100 @@ public struct HumanFragment: Decodable, Equatable {
 
         public struct Human2: Decodable, Equatable {
 
-            public let name: String
+            public let humanFragment2: HumanFragment2
 
             public enum CodingKeys: String, CodingKey {
-                case name
+                case humanFragment2
             }
 
-            public init(from decoder: Decoder) throws {
-                let values = try decoder.container(keyedBy: CodingKeys.self)
-                name = try values.decode(String.self, forKey: CodingKeys.name)
+            public init(from decoder: Decoder) throws { humanFragment2 = try HumanFragment2(from: decoder) }
+        }
+    }
+}
+
+public struct HumanFragment2: Decodable, Equatable {
+
+    static let definition =  
+    """
+    fragment HumanFragment2 on Human {
+      name
+      friends {
+        __typename
+        name
+        ... on Human {
+          ...HumanFragment3
+        }
+      }
+    }
+    """
+
+    public let name: String
+    public let friends: Optional<Array<Optional<Character>>>
+
+    public enum CodingKeys: String, CodingKey {
+        case name
+        case friends
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        name = try values.decode(String.self, forKey: CodingKeys.name)
+        friends = try values.decodeIfPresent(Array<Optional<Character>>.self, forKey: CodingKeys.friends)
+    }
+
+    public struct Character: Decodable, Equatable {
+
+        public let name: String
+        public let asHuman: Optional<Human>
+
+        public enum CodingKeys: String, CodingKey {
+            case __typename
+            case name
+        }
+
+        public init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            name = try values.decode(String.self, forKey: CodingKeys.name)
+            let type = try values.decode(String.self, forKey: .__typename)
+            switch type {
+            case "Human":
+                asHuman = try? Human(from: decoder)
+            default:
+                asHuman = nil
             }
         }
+
+        public struct Human: Decodable, Equatable {
+
+            public let humanFragment3: HumanFragment3
+
+            public enum CodingKeys: String, CodingKey {
+                case humanFragment3
+            }
+
+            public init(from decoder: Decoder) throws { humanFragment3 = try HumanFragment3(from: decoder) }
+        }
+    }
+}
+
+public struct HumanFragment3: Decodable, Equatable {
+
+    static let definition =  
+    """
+    fragment HumanFragment3 on Human {
+      name
+    }
+    """
+
+    public let name: String
+
+    public enum CodingKeys: String, CodingKey {
+        case name
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        name = try values.decode(String.self, forKey: CodingKeys.name)
     }
 }
 
@@ -126,7 +206,7 @@ public struct DroidFragment: Decodable, Equatable {
     static let definition =  
     """
     fragment DroidFragment on Droid {
-        primaryFunction
+      primaryFunction
     }
     """
 
@@ -139,6 +219,27 @@ public struct DroidFragment: Decodable, Equatable {
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         primaryFunction = try values.decodeIfPresent(String.self, forKey: CodingKeys.primaryFunction)
+    }
+}
+
+public struct StarshipFragment: Decodable, Equatable {
+
+    static let definition =  
+    """
+    fragment StarshipFragment on Starship {
+      length
+    }
+    """
+
+    public let length: Optional<Double>
+
+    public enum CodingKeys: String, CodingKey {
+        case length
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        length = try values.decodeIfPresent(Double.self, forKey: CodingKeys.length)
     }
 }
 
@@ -201,7 +302,7 @@ public struct Search: Encodable, Equatable {
         }
       }
     }
-    """ + DroidFragment.definition + HumanFragment.definition
+    """ + DroidFragment.definition + HumanFragment.definition + HumanFragment2.definition + HumanFragment3.definition
 
     public let query = Self.definition
     public let operationName = "Search"
