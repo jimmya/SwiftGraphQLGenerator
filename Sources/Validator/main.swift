@@ -9,13 +9,13 @@ request.httpBody = try JSONEncoder().encode(query)
 let (data, response, error) = URLSession.shared.synchronousDataTask(with: request)
 if let data = data {
     let result = try JSONDecoder().decode(GraphQLResponse<Search.Data>.self, from: data)
-    let items = result.data.search?.compactMap { $0 } ?? []
+    let items = result.data?.search?.compactMap { $0 } ?? []
     items.forEach { result in
         switch result {
             case .human(human: let human):
-                print(human.name)
+                print(human.humanFragment.name)
             case .droid(droid: let droid):
-                print(droid.name)
+                print(droid.droidFragment.primaryFunction)
             default:
                 print("Starship")
         }

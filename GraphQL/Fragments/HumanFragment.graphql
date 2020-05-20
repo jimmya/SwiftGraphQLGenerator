@@ -7,11 +7,15 @@ fragment HumanFragment on Human {
       mass
     }
     ... on Human {
-            homePlanet
+        name
     }
     ... on Droid {
       primaryFunction
     }
   }
   appearsIn
+}
+
+fragment DroidFragment on Droid {
+    primaryFunction
 }

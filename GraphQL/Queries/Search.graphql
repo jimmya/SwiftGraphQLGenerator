@@ -2,10 +2,10 @@ query Search($query: String!) {
   search(text: $query) {
     __typename
     ... on Human {
-      name
+      ... HumanFragment
     }
     ... on Droid {
-      name
+      ... DroidFragment
     }
   }
 }
